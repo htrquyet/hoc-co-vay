@@ -58,12 +58,14 @@
     lessonFilter: 'all',
     currentLessonId: LESSONS[0].id,
     trainerMode: 'demo',
+    demoVariationIndex: 0,
     demoStepIndex: 0,
     demoTimer: null,
     trainerShowLiberties: false,
     trainerZoomed: true,
     puzzleNode: null,
     puzzleLocked: false,
+    lastWrongCoord: null,
     theoryExpanded: !isCoarsePointerDevice(),
     // Sandbox
     sandboxSize: 9,
@@ -73,6 +75,12 @@
     handicap: 0,
     sandboxShowLiberties: false,
     sandboxShowScore: false,
+    sandboxPhase: 'playing',
+    sandboxScoreRule: 'japanese',
+    sandboxDeadMap: null,
+    lastPlayerBeforeEngine: null,
+    lastPlayerMove: null,
+    coachActive: false,
     botThinking: false,
     // Glossary
     glossaryQuery: '',
@@ -324,12 +332,14 @@
   }
 
   function estimateRankLabel(doneCount) {
-    if (doneCount >= 24) return '1 Dan (Thành thạo)';
-    if (doneCount >= 22) return '2 Kyu (Cao cấp)';
-    if (doneCount >= 19) return '5 Kyu (Khá giỏi)';
-    if (doneCount >= 15) return '8 Kyu (Trung cấp)';
-    if (doneCount >= 10) return '15 Kyu (Sơ trung cấp)';
-    if (doneCount >= 4) return '20 Kyu (Cơ bản)';
+    const total = LESSONS.length || 1;
+    const ratio = doneCount / total;
+    if (ratio >= 1) return '1 Dan (Thành thạo)';
+    if (ratio >= 0.88) return '2 Kyu (Cao cấp)';
+    if (ratio >= 0.72) return '5 Kyu (Khá giỏi)';
+    if (ratio >= 0.55) return '8 Kyu (Trung cấp)';
+    if (ratio >= 0.35) return '15 Kyu (Sơ trung cấp)';
+    if (ratio >= 0.15) return '20 Kyu (Cơ bản)';
     return '30 Kyu (Nhập môn)';
   }
 
@@ -338,6 +348,7 @@
     const done = state.solvedLessons.size;
     const pct = total ? Math.round((done / total) * 100) : 0;
 
+    document.getElementById('navLessonCount').textContent = String(total);
     document.getElementById('overallProgressText').textContent = `${done}/${total} thế cờ`;
     document.getElementById('sidebarProgressBadge').textContent = `${done}/${total}`;
     document.getElementById('roadmapRankBadge').textContent = estimateRankLabel(done);
@@ -454,7 +465,7 @@
           ? `Tiếp tục Bài ${firstUnsolved.code}: ${firstUnsolved.title} →`
           : 'Bắt đầu Bài 1.1 ngay →';
     } else {
-      heroBtn.textContent = '🎉 Đã xong 24/24 bài — Ôn lại từ đầu →';
+      heroBtn.textContent = `🎉 Đã xong ${LESSONS.length}/${LESSONS.length} bài — Ôn lại từ đầu →`;
     }
   }
 
@@ -510,16 +521,101 @@
     body.classList.toggle('collapsed', !expanded);
   }
 
+  function getLessonVariations(lesson) {
+    if (Array.isArray(lesson.variations) && lesson.variations.length > 0) {
+      return lesson.variations;
+    }
+    return [
+      {
+        id: 'demo',
+        kind: 'good',
+        label: 'Minh họa từng bước',
+        summary: lesson.summary,
+        steps: lesson.demoSteps || []
+      }
+    ];
+  }
+
+  function getActiveVariation(lesson) {
+    const vars = getLessonVariations(lesson);
+    const idx = Math.max(0, Math.min(state.demoVariationIndex, vars.length - 1));
+    state.demoVariationIndex = idx;
+    return vars[idx];
+  }
+
+  function renderVariationTabs(lesson) {
+    const wrap = document.getElementById('demoVariationTabs');
+    const variations = getLessonVariations(lesson);
+    wrap.innerHTML = '';
+
+    variations.forEach((v, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const kindClass = v.kind === 'bad' ? 'bad' : v.kind === 'ok' ? 'ok' : 'good';
+      btn.className = `variation-pill ${kindClass} ${idx === state.demoVariationIndex ? 'active' : ''}`;
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-selected', String(idx === state.demoVariationIndex));
+      const badgeLetter = String.fromCharCode(65 + idx);
+      const icon = v.kind === 'bad' ? '✕' : v.kind === 'ok' ? '△' : '✓';
+      btn.innerHTML = `<span class="variation-badge">${badgeLetter}</span><span>${icon} ${v.label}</span>`;
+      btn.addEventListener('click', () => {
+        stopDemoAutoplay();
+        state.demoVariationIndex = idx;
+        renderVariationTabs(lesson);
+        applyDemoStep(0, false);
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
+  function renderDetailCompareList(lesson) {
+    const wrap = document.getElementById('detailCompareList');
+    const variations = getLessonVariations(lesson);
+    wrap.innerHTML = '';
+
+    variations.forEach((v, idx) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      const kindClass = v.kind === 'bad' ? 'bad' : v.kind === 'ok' ? 'ok' : 'good';
+      const tagText = v.kind === 'bad' ? 'Chưa tốt' : v.kind === 'ok' ? 'Chấp nhận được' : 'Nước tốt';
+      const badgeLetter = String.fromCharCode(65 + idx);
+      card.className = `compare-card ${kindClass}`;
+      card.innerHTML = `
+        <div class="compare-card-top">
+          <span class="compare-card-title"><strong>${badgeLetter}.</strong> ${v.label}</span>
+          <span class="quality-tag ${kindClass}">${tagText}</span>
+        </div>
+        <p class="compare-card-summary">${v.summary || ''}</p>
+      `;
+      card.addEventListener('click', () => {
+        stopDemoAutoplay();
+        state.demoVariationIndex = idx;
+        if (state.trainerMode !== 'demo') {
+          setTrainerMode('demo');
+        } else {
+          renderVariationTabs(lesson);
+        }
+        const steps = v.steps || [];
+        applyDemoStep(steps.length > 1 ? 1 : 0, true);
+      });
+      wrap.appendChild(card);
+    });
+  }
+
   function openLesson(lessonId, preferredMode = 'demo') {
     stopDemoAutoplay();
     state.currentLessonId = lessonId;
     state.trainerMode = preferredMode;
+    state.demoVariationIndex = 0;
     state.demoStepIndex = 0;
+    state.lastWrongCoord = null;
     state.trainerZoomed = true;
     savePrefs();
 
     const lesson = getCurrentLesson();
     renderLessonSidebar();
+    renderVariationTabs(lesson);
+    renderDetailCompareList(lesson);
 
     document.getElementById('mobileLessonLabel').textContent = `${lesson.code} · ${lesson.title}`;
     document.getElementById('detailCode').textContent = `Bài ${lesson.code}`;
@@ -571,20 +667,33 @@
 
     if (mode === 'demo') {
       setFeedback(null);
+      renderVariationTabs(getCurrentLesson());
       applyDemoStep(0, false);
     } else {
       initPuzzle();
     }
   }
 
+  function getFirstMoveOfVariation(variation) {
+    for (const step of variation.steps || []) {
+      if (Array.isArray(step.moves) && step.moves.length > 0) {
+        return step.moves[0];
+      }
+    }
+    return null;
+  }
+
   function applyDemoStep(stepIndex, withAudio = true) {
     const lesson = getCurrentLesson();
-    const steps = lesson.demoSteps || [];
-    const clamped = Math.max(0, Math.min(stepIndex, steps.length - 1));
+    const variations = getLessonVariations(lesson);
+    const activeVar = getActiveVariation(lesson);
+    const steps = activeVar.steps || [];
+    const clamped = Math.max(0, Math.min(stepIndex, Math.max(0, steps.length - 1)));
     state.demoStepIndex = clamped;
 
+    const basePos = activeVar.initialPosition || lesson.demoInitialPosition || lesson.puzzle.initialPosition;
     trainerEngine = new GoEngine(lesson.boardSize);
-    trainerEngine.setPosition(lesson.demoInitialPosition || lesson.puzzle.initialPosition, BLACK);
+    trainerEngine.setPosition(basePos, BLACK);
 
     let lastCapCount = 0;
     let movedOnLast = false;
@@ -606,14 +715,61 @@
     }
 
     const currentStep = steps[clamped] || { caption: '' };
+    let annotations = Array.isArray(currentStep.markers) ? [...currentStep.markers] : [];
+
+    // On initial step 0, overlay A/B/C comparison badges for variations sharing this starting position
+    if (clamped === 0 && variations.length > 1) {
+      const baseKey = JSON.stringify(basePos);
+      const seenCoords = new Set();
+      variations.forEach((v, idx) => {
+        const vPos = v.initialPosition || lesson.demoInitialPosition || lesson.puzzle.initialPosition;
+        if (JSON.stringify(vPos) !== baseKey) return;
+        const firstMv = getFirstMoveOfVariation(v);
+        if (!firstMv) return;
+        const ck = `${firstMv.x},${firstMv.y}`;
+        if (seenCoords.has(ck) || trainerEngine.get(firstMv.x, firstMv.y) !== 0) return;
+        seenCoords.add(ck);
+        annotations.push({
+          x: firstMv.x,
+          y: firstMv.y,
+          type: 'label',
+          badge: true,
+          text: String.fromCharCode(65 + idx),
+          color: v.kind === 'bad' ? '#dc2626' : v.kind === 'ok' ? '#d97706' : '#16a34a'
+        });
+      });
+    }
+
     trainerRenderer.setEngine(trainerEngine);
     trainerRenderer.setInteractive(false);
     trainerRenderer.setTerritoryMap(null);
-    trainerRenderer.setAnnotations(currentStep.markers || []);
+    trainerRenderer.setDeadMap(null);
+    trainerRenderer.setScoringMode(false);
+    trainerRenderer.setAnnotations(annotations);
     updateZoomButton();
 
-    document.getElementById('demoStepCounter').textContent = `${clamped + 1}/${steps.length}`;
-    document.getElementById('demoCaptionText').textContent = currentStep.caption;
+    document.getElementById('demoStepCounter').textContent = `${clamped + 1}/${Math.max(1, steps.length)}`;
+    document.getElementById('demoCaptionText').textContent = currentStep.caption || '';
+
+    const reasonBox = document.getElementById('demoReasonBox');
+    if (currentStep.why) {
+      reasonBox.hidden = false;
+      const reasonKind = clamped === 0 ? 'info' : activeVar.kind === 'bad' ? 'bad' : activeVar.kind === 'ok' ? 'ok' : 'good';
+      reasonBox.className = `demo-reason-box ${reasonKind}`;
+      const prefix =
+        clamped === 0
+          ? 'Quan sát & So sánh'
+          : activeVar.kind === 'bad'
+            ? 'Tại sao nước này chưa tốt'
+            : activeVar.kind === 'ok'
+              ? 'Phân tích nước đi'
+              : 'Tại sao nước này tốt';
+      reasonBox.innerHTML = `<strong>${prefix}:</strong> ${currentStep.why}`;
+    } else {
+      reasonBox.hidden = true;
+      reasonBox.textContent = '';
+    }
+
     document.getElementById('demoFirstBtn').disabled = clamped === 0;
     document.getElementById('demoPrevBtn').disabled = clamped === 0;
     document.getElementById('demoNextBtn').disabled = clamped >= steps.length - 1;
@@ -644,17 +800,20 @@
       return;
     }
     const lesson = getCurrentLesson();
-    if (state.demoStepIndex >= lesson.demoSteps.length - 1) {
+    const steps = getActiveVariation(lesson).steps || [];
+    if (steps.length <= 1) return;
+    if (state.demoStepIndex >= steps.length - 1) {
       applyDemoStep(0, false);
     }
     document.getElementById('demoPlayBtn').textContent = '⏸ Tạm dừng';
     state.demoTimer = setInterval(() => {
-      if (state.demoStepIndex >= lesson.demoSteps.length - 1) {
+      const curSteps = getActiveVariation(getCurrentLesson()).steps || [];
+      if (state.demoStepIndex >= curSteps.length - 1) {
         stopDemoAutoplay();
         return;
       }
       applyDemoStep(state.demoStepIndex + 1, true);
-    }, 1650);
+    }, 1850);
   }
 
   function initPuzzle() {
@@ -677,14 +836,16 @@
     setFeedback('info', hintInstruction, false);
   }
 
-  function setFeedback(kind, text, showNextCta = false) {
+  function setFeedback(kind, text, showNextCta = false, showCompareCta = false) {
     const box = document.getElementById('puzzleFeedbackBox');
     const txt = document.getElementById('puzzleFeedbackText');
     const nextBtn = document.getElementById('feedbackNextLessonBtn');
+    const cmpBtn = document.getElementById('feedbackCompareBtn');
     if (!kind || !text) {
       box.hidden = true;
       txt.textContent = '';
       nextBtn.hidden = true;
+      cmpBtn.hidden = true;
       return;
     }
     box.hidden = false;
@@ -692,6 +853,7 @@
     txt.textContent = text;
     const idx = LESSONS.findIndex((l) => l.id === state.currentLessonId);
     nextBtn.hidden = !showNextCta || idx >= LESSONS.length - 1;
+    cmpBtn.hidden = !showCompareCta;
   }
 
   function handleTrainerBoardClick(x, y) {
@@ -721,26 +883,29 @@
 
     if (!branch) {
       state.puzzleLocked = true;
+      state.lastWrongCoord = key;
       audio.playSoftError();
-      setFeedback('error', `${lesson.puzzle.defaultWrongFeedback} Nhấn "Thử lại" để đánh lại.`);
+      setFeedback('error', `${lesson.puzzle.defaultWrongFeedback} Nhấn "Thử lại" để đánh lại.`, false, true);
       return;
     }
 
     if (branch.status === 'solved') {
       state.puzzleLocked = true;
+      state.lastWrongCoord = null;
       state.solvedLessons.add(lesson.id);
       savePrefs();
       updateGlobalProgress();
       renderRoadmap();
       renderLessonSidebar();
       document.getElementById('detailSolvedBadge').hidden = false;
-      setFeedback('success', `🎉 ${branch.feedback}`, true);
+      setFeedback('success', `🎉 ${branch.feedback}`, true, true);
       setTimeout(() => audio.playSolved(), 140);
       return;
     }
 
     if (branch.status === 'wrong') {
       state.puzzleLocked = true;
+      state.lastWrongCoord = key;
       if (Array.isArray(branch.reply)) {
         const [rx, ry] = branch.reply;
         setTimeout(() => {
@@ -754,7 +919,7 @@
           trainerRenderer.render();
         }, 300);
       }
-      setFeedback('error', `❌ ${branch.feedback} Nhấn "Thử lại" để thử hướng khác.`);
+      setFeedback('error', `❌ ${branch.feedback} Nhấn "Thử lại" để thử hướng khác.`, false, true);
       return;
     }
 
@@ -869,19 +1034,53 @@
     }
   }
 
+  function syncCoachButtons() {
+    const reviewBtn = document.getElementById('sandboxCoachReviewBtn');
+    const hintBtn = document.getElementById('sandboxCoachHintBtn');
+    const clearBtn = document.getElementById('sandboxCoachClearBtn');
+    if (reviewBtn) {
+      reviewBtn.disabled = !state.lastPlayerBeforeEngine || !state.lastPlayerMove || state.botThinking;
+    }
+    if (hintBtn) {
+      hintBtn.disabled = state.botThinking || state.sandboxPhase !== 'playing';
+    }
+    if (clearBtn) {
+      clearBtn.hidden = !state.coachActive;
+    }
+  }
+
+  function clearSandboxCoach() {
+    state.coachActive = false;
+    const card = document.getElementById('sandboxCoachCard');
+    if (card) card.hidden = true;
+    if (sandboxRenderer) sandboxRenderer.setAnnotations([]);
+    syncCoachButtons();
+  }
+
   function initSandbox() {
     sandboxEngine = new GoEngine(state.sandboxSize);
     if (state.sandboxMode === 'bot' && state.handicap >= 2) {
       sandboxEngine.setupHandicap(state.handicap);
     }
     state.sandboxShowScore = false;
+    state.sandboxPhase = 'playing';
+    state.sandboxDeadMap = null;
+    state.lastPlayerBeforeEngine = null;
+    state.lastPlayerMove = null;
     state.botThinking = false;
     sandboxRenderer.setEngine(sandboxEngine);
+    sandboxRenderer.setDeadMap(null);
+    sandboxRenderer.setScoringMode(false);
     sandboxRenderer.setTerritoryMap(null);
+    sandboxRenderer.setAnnotations([]);
     sandboxRenderer.setInteractive(true);
     sandboxRenderer.setHoverColor(sandboxEngine.turn);
     document.getElementById('sandboxScoreCard').hidden = true;
+    document.getElementById('sandboxScoreBanner').hidden = true;
+    document.getElementById('sandboxScoreHint').hidden = true;
+    document.getElementById('sandboxScoreActions').hidden = true;
     document.getElementById('sandboxScoreBtn').classList.remove('active-toggle');
+    clearSandboxCoach();
     setSandboxNotice(null);
     syncSandboxSettingsUI();
     updateSandboxStats();
@@ -937,29 +1136,407 @@
     document.getElementById('sandboxBlackCaps').textContent = `${sandboxEngine.captures[BLACK]} tù binh`;
     document.getElementById('sandboxWhiteCaps').textContent = `${sandboxEngine.captures[WHITE]} tù binh`;
     sandboxRenderer.setHoverColor(sandboxEngine.turn);
+    syncCoachButtons();
+  }
+
+  function getWinnerLabelForRule(sc, rule) {
+    const winner = rule === 'chinese' ? sc.areaWinner : sc.winner;
+    const margin = rule === 'chinese' ? sc.areaMargin : sc.margin;
+    const isBlack = winner === BLACK;
+    let playerTag = isBlack ? '⚫ Đen thắng' : '⚪ Trắng thắng';
+    if (state.sandboxMode === 'bot') {
+      playerTag += winner === state.playerColor ? ' (Bạn thắng!)' : ' (Máy thắng)';
+    }
+    return { winner, margin, playerTag };
   }
 
   function renderSandboxScore() {
     const komi = getActiveKomi();
-    const sc = sandboxEngine.estimateScore(komi);
+    const deadMap = state.sandboxPhase === 'playing' ? null : state.sandboxDeadMap;
+    const sc = sandboxEngine.scorePosition(komi, deadMap);
+    sandboxRenderer.setDeadMap(deadMap);
     sandboxRenderer.setTerritoryMap(state.sandboxShowScore ? sc.territoryMap : null);
+
     const card = document.getElementById('sandboxScoreCard');
     card.hidden = !state.sandboxShowScore;
     if (!state.sandboxShowScore) return;
 
-    const winnerName = sc.winner === BLACK ? '⚫ Đen thắng' : '⚪ Trắng thắng';
-    document.getElementById('sandboxScoreBody').innerHTML = `
-      <div class="score-row"><span>Đất Đen + Tù binh</span><strong>${sc.blackTerritory} + ${sc.blackCaptures} = ${sc.blackTotal}</strong></div>
-      <div class="score-row"><span>Đất Trắng + Tù binh + Komi</span><strong>${sc.whiteTerritory} + ${sc.whiteCaptures} + ${sc.komi} = ${sc.whiteTotal}</strong></div>
-      <div class="score-row score-winner"><span>Kết quả ước lượng</span><span>${winnerName} (+${sc.margin.toFixed(1)} điểm)</span></div>
+    const isScoring = state.sandboxPhase === 'scoring';
+    const isFinished = state.sandboxPhase === 'finished';
+    const rule = state.sandboxScoreRule;
+
+    document.querySelectorAll('#sandboxScoreRuleSwitch .seg-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.rule === rule);
+    });
+
+    const titleEl = document.getElementById('sandboxScoreTitle');
+    if (isFinished) {
+      titleEl.textContent = `Kết quả chính thức (Komi ${komi})`;
+    } else if (isScoring) {
+      titleEl.textContent = `Kiểm tra quân chết & Đếm điểm (Komi ${komi})`;
+    } else {
+      titleEl.textContent = `Ước lượng điểm số tạm thời (Komi ${komi})`;
+    }
+
+    const banner = document.getElementById('sandboxScoreBanner');
+    const hintEl = document.getElementById('sandboxScoreHint');
+    const actionsEl = document.getElementById('sandboxScoreActions');
+    const confirmBtn = document.getElementById('sandboxConfirmScoreBtn');
+    const autoBtn = document.getElementById('sandboxAutoDeadBtn');
+    const editBtn = document.getElementById('sandboxEditDeadBtn');
+
+    const { winner, margin, playerTag } = getWinnerLabelForRule(sc, rule);
+    const blackVal = rule === 'chinese' ? sc.blackArea : sc.blackTotal;
+    const whiteVal = rule === 'chinese' ? sc.whiteArea : sc.whiteTotal;
+    const sumVal = Math.max(1, blackVal + whiteVal);
+    const blackPct = Math.round((blackVal / sumVal) * 100);
+
+    banner.hidden = false;
+    banner.className = `score-banner ${winner === BLACK ? 'black-wins' : 'white-wins'}`;
+    banner.innerHTML = `
+      <div class="score-banner-top">
+        <strong>${isFinished ? '🏆 ' : ''}${playerTag}</strong>
+        <span class="score-margin-pill">+${margin.toFixed(1)} điểm</span>
+      </div>
+      <div class="score-bar-track" aria-hidden="true">
+        <div class="score-bar-black" style="width: ${blackPct}%"></div>
+        <div class="score-bar-white" style="width: ${100 - blackPct}%"></div>
+      </div>
     `;
+
+    if (isScoring) {
+      hintEl.hidden = false;
+      hintEl.textContent =
+        'Chạm vào bất kỳ quân cờ nào trên bàn để đánh dấu / bỏ đánh dấu quân chết (dấu × đỏ). Quân chết sẽ biến thành điểm đất và tù binh cho đối phương, sau đó nhấn "Chốt kết quả".';
+    } else {
+      hintEl.hidden = true;
+    }
+
+    const deadInfoBlack = sc.deadWhiteStones > 0 ? ` + ${sc.deadWhiteStones} quân chết` : '';
+    const deadInfoWhite = sc.deadBlackStones > 0 ? ` + ${sc.deadBlackStones} quân chết` : '';
+
+    const rowsHtml =
+      rule === 'chinese'
+        ? `
+          <div class="score-row"><span>Đất Đen + Quân sống trên bàn</span><strong>${sc.blackTerritory} + ${sc.blackAliveStones} = ${sc.blackArea}</strong></div>
+          <div class="score-row"><span>Đất Trắng + Quân sống + Komi</span><strong>${sc.whiteTerritory} + ${sc.whiteAliveStones} + ${sc.komi} = ${sc.whiteArea}</strong></div>
+        `
+        : `
+          <div class="score-row"><span>Đất Đen + Tù binh${deadInfoBlack}</span><strong>${sc.blackTerritory} + ${sc.blackCaptures}${deadInfoBlack} = ${sc.blackTotal}</strong></div>
+          <div class="score-row"><span>Đất Trắng + Tù binh${deadInfoWhite} + Komi</span><strong>${sc.whiteTerritory} + ${sc.whiteCaptures}${deadInfoWhite} + ${sc.komi} = ${sc.whiteTotal}</strong></div>
+        `;
+
+    const libertiesHtml = `
+      <div class="score-liberties-box">
+        <div class="score-liberties-head">
+          <strong>Thống kê Khí (Liberties) &amp; Quân sống</strong>
+          <span class="muted">Dame: ${sc.dameCount} ô</span>
+        </div>
+        <div class="score-liberties-grid">
+          <div class="lib-stat">
+            <span class="stone-dot black"></span>
+            <div>
+              <strong>${sc.blackLiberties} khí</strong>
+              <span>${sc.blackGroups} đám · ${sc.blackAliveStones} quân sống</span>
+            </div>
+          </div>
+          <div class="lib-stat">
+            <span class="stone-dot white"></span>
+            <div>
+              <strong>${sc.whiteLiberties} khí</strong>
+              <span>${sc.whiteGroups} đám · ${sc.whiteAliveStones} quân sống</span>
+            </div>
+          </div>
+        </div>
+        <p class="score-note">
+          Đếm khí khi kết thúc giúp kiểm tra nhóm nào còn an toàn (≥ 2 khí / 2 mắt); thắng thua cuối ván tính theo Đất kín + Tù binh (+ Quân chết) + Komi.
+        </p>
+      </div>
+    `;
+
+    document.getElementById('sandboxScoreBody').innerHTML = rowsHtml + libertiesHtml;
+
+    if (state.sandboxPhase === 'playing') {
+      actionsEl.hidden = true;
+    } else {
+      actionsEl.hidden = false;
+      confirmBtn.hidden = !isScoring;
+      autoBtn.hidden = !isScoring;
+      editBtn.hidden = !isFinished;
+    }
+  }
+
+  function enterSandboxScoringPhase(noticeText) {
+    if (state.botThinking) return;
+    clearSandboxCoach();
+    state.sandboxPhase = 'scoring';
+    state.sandboxShowScore = true;
+    state.sandboxDeadMap = sandboxEngine.detectDeadStones(getActiveKomi());
+    sandboxRenderer.setScoringMode(true);
+    sandboxRenderer.setInteractive(true);
+    sandboxRenderer.setDeadMap(state.sandboxDeadMap);
+    document.getElementById('sandboxScoreBtn').classList.add('active-toggle');
+    renderSandboxScore();
+    updateSandboxStats();
+    setSandboxNotice(
+      'info',
+      noticeText ||
+        'Đã vào chế độ Kết thúc ván & Đếm điểm: chạm vào quân chết trên bàn để điều chỉnh nếu cần, rồi nhấn "Chốt kết quả".'
+    );
+  }
+
+  function finalizeSandboxScore() {
+    state.sandboxPhase = 'finished';
+    sandboxRenderer.setScoringMode(false);
+    renderSandboxScore();
+    const sc = sandboxEngine.scorePosition(getActiveKomi(), state.sandboxDeadMap);
+    const { winner, playerTag, margin } = getWinnerLabelForRule(sc, state.sandboxScoreRule);
+    setSandboxNotice('success', `🏆 Kết thúc ván đấu: ${playerTag} với cách biệt ${margin.toFixed(1)} điểm!`);
+    if (state.sandboxMode === 'two' || winner === state.playerColor) {
+      audio.playSolved();
+    }
+  }
+
+  function resumeSandboxPlay() {
+    state.sandboxPhase = 'playing';
+    state.sandboxDeadMap = null;
+    state.sandboxShowScore = false;
+    sandboxEngine.consecutivePasses = 0;
+    sandboxRenderer.setScoringMode(false);
+    sandboxRenderer.setDeadMap(null);
+    sandboxRenderer.setTerritoryMap(null);
+    sandboxRenderer.setInteractive(true);
+    document.getElementById('sandboxScoreCard').hidden = true;
+    document.getElementById('sandboxScoreBtn').classList.remove('active-toggle');
+    clearSandboxCoach();
+    setSandboxNotice('info', 'Đã quay lại đánh tiếp ván cờ!');
+    updateSandboxStats();
+  }
+
+  function showSandboxCoachHint() {
+    if (state.botThinking || state.sandboxPhase !== 'playing') return;
+    const turnColor = sandboxEngine.turn;
+    const coach = sandboxEngine.getCoachSuggestions(turnColor, getActiveKomi());
+    const turnLabel = turnColor === BLACK ? '⚫ Đen' : '⚪ Trắng';
+    const canPlayDirectly =
+      state.sandboxMode === 'two' || turnColor === state.playerColor;
+
+    const badgeColors = { best: '#16a34a', good: '#0284c7', ok: '#d97706' };
+    const annotations = [];
+    for (const rec of coach.recommendations) {
+      annotations.push({
+        x: rec.x,
+        y: rec.y,
+        type: 'label',
+        badge: true,
+        text: rec.letter,
+        color: badgeColors[rec.quality] || '#16a34a'
+      });
+    }
+    for (const warn of coach.warnings) {
+      annotations.push({
+        x: warn.x,
+        y: warn.y,
+        type: 'label',
+        badge: true,
+        text: '✕',
+        color: '#dc2626'
+      });
+    }
+    sandboxRenderer.setAnnotations(annotations);
+
+    const card = document.getElementById('sandboxCoachCard');
+    const titleEl = document.getElementById('sandboxCoachTitle');
+    const bodyEl = document.getElementById('sandboxCoachBody');
+    titleEl.textContent = `💡 Gợi ý nước đi cho ${turnLabel}`;
+
+    let html = '';
+    for (const al of coach.alerts) {
+      html += `<div class="coach-alert">${al}</div>`;
+    }
+    if (coach.suggestPass) {
+      html += `<div class="coach-alert info">Thế trận gần như đã định hình xong — bạn có thể nhấn <strong>Bỏ lượt</strong> hoặc <strong>Kết thúc</strong> để đếm điểm!</div>`;
+    }
+
+    if (coach.recommendations.length > 0) {
+      html += '<div class="coach-move-list">';
+      for (const rec of coach.recommendations) {
+        const qualityText =
+          rec.quality === 'best' ? 'Tốt nhất' : rec.quality === 'good' ? 'Rất tốt' : 'Khả thi';
+        const tagsHtml = rec.tags.map((t) => `<span class="coach-tag">${t}</span>`).join('');
+        const playBtnHtml = canPlayDirectly
+          ? `<button type="button" class="btn btn-sm btn-primary coach-play-btn" data-x="${rec.x}" data-y="${rec.y}">Đánh ${rec.coord}</button>`
+          : '';
+        html += `
+          <div class="coach-move-item ${rec.quality}">
+            <div class="coach-move-top">
+              <div class="coach-move-id">
+                <span class="coach-letter ${rec.quality}">${rec.letter}</span>
+                <strong>${rec.coord}</strong>
+                <span class="quality-tag ${rec.quality === 'ok' ? 'ok' : 'good'}">${qualityText}</span>
+              </div>
+              ${playBtnHtml}
+            </div>
+            <div class="coach-tags">${tagsHtml}</div>
+            <p class="coach-reason">${rec.reason}</p>
+          </div>
+        `;
+      }
+      html += '</div>';
+    }
+
+    if (coach.warnings.length > 0) {
+      html += '<div class="coach-warnings-title">Nước nên tránh lúc này:</div><div class="coach-move-list">';
+      for (const warn of coach.warnings) {
+        const tagsHtml = warn.tags.map((t) => `<span class="coach-tag bad">${t}</span>`).join('');
+        html += `
+          <div class="coach-move-item bad">
+            <div class="coach-move-top">
+              <div class="coach-move-id">
+                <span class="coach-letter bad">✕</span>
+                <strong>${warn.coord}</strong>
+                <span class="quality-tag bad">Không nên đi</span>
+              </div>
+            </div>
+            <div class="coach-tags">${tagsHtml}</div>
+            <p class="coach-reason">${warn.reason}</p>
+          </div>
+        `;
+      }
+      html += '</div>';
+    }
+
+    bodyEl.innerHTML = html;
+    bodyEl.querySelectorAll('.coach-play-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const px = parseInt(btn.dataset.x, 10);
+        const py = parseInt(btn.dataset.y, 10);
+        handleSandboxClick(px, py);
+      });
+    });
+
+    state.coachActive = true;
+    card.hidden = false;
+    syncCoachButtons();
+  }
+
+  function showSandboxCoachReview() {
+    if (state.botThinking || !state.lastPlayerBeforeEngine || !state.lastPlayerMove) return;
+    const mv = state.lastPlayerMove;
+    const evalRes = state.lastPlayerBeforeEngine.evaluatePlayedMove(mv.x, mv.y, mv.color, getActiveKomi());
+    if (!evalRes) return;
+
+    const annotations = [];
+    if (sandboxEngine.get(mv.x, mv.y) === mv.color) {
+      annotations.push({
+        x: mv.x,
+        y: mv.y,
+        type: 'circle',
+        color: evalRes.grade === 'mistake' ? '#dc2626' : evalRes.grade === 'inaccurate' ? '#d97706' : '#16a34a'
+      });
+    }
+    if (evalRes.bestMove && sandboxEngine.get(evalRes.bestMove.x, evalRes.bestMove.y) === 0) {
+      annotations.push({
+        x: evalRes.bestMove.x,
+        y: evalRes.bestMove.y,
+        type: 'label',
+        badge: true,
+        text: 'A',
+        color: '#16a34a'
+      });
+    }
+    sandboxRenderer.setAnnotations(annotations);
+
+    const card = document.getElementById('sandboxCoachCard');
+    const titleEl = document.getElementById('sandboxCoachTitle');
+    const bodyEl = document.getElementById('sandboxCoachBody');
+    const colorName = mv.color === BLACK ? '⚫ Đen' : '⚪ Trắng';
+    titleEl.textContent = `🔎 Phân tích nước vừa đi (${colorName} ${evalRes.playedCoord})`;
+
+    const tagsHtml = evalRes.tags.map((t) => `<span class="coach-tag">${t}</span>`).join('');
+    let html = `
+      <div class="coach-grade-banner ${evalRes.grade}">
+        <strong>${evalRes.gradeLabel}</strong>
+        <p>${evalRes.summary}</p>
+      </div>
+      <div class="coach-move-item ${evalRes.grade === 'mistake' ? 'bad' : evalRes.grade === 'inaccurate' ? 'ok' : 'good'}">
+        <div class="coach-move-top">
+          <div class="coach-move-id">
+            <strong>Nước bạn đi: ${evalRes.playedCoord}</strong>
+          </div>
+        </div>
+        <div class="coach-tags">${tagsHtml}</div>
+        <p class="coach-reason">${evalRes.playedReason}</p>
+      </div>
+    `;
+
+    if (evalRes.bestMove) {
+      const alt = evalRes.bestMove;
+      const altTags = alt.tags.map((t) => `<span class="coach-tag">${t}</span>`).join('');
+      const undoOffer =
+        (evalRes.grade === 'mistake' || evalRes.grade === 'inaccurate') && state.sandboxPhase === 'playing'
+          ? '<button type="button" class="btn btn-sm btn-secondary coach-undo-btn">↩ Đi lại để sửa nước này</button>'
+          : '';
+      html += `
+        <div class="coach-move-item best">
+          <div class="coach-move-top">
+            <div class="coach-move-id">
+              <span class="coach-letter best">A</span>
+              <strong>Đề xuất tốt hơn: ${alt.coord}</strong>
+            </div>
+            ${undoOffer}
+          </div>
+          <div class="coach-tags">${altTags}</div>
+          <p class="coach-reason">${alt.reason}</p>
+        </div>
+      `;
+    }
+
+    bodyEl.innerHTML = html;
+    const undoBtn = bodyEl.querySelector('.coach-undo-btn');
+    if (undoBtn) {
+      undoBtn.addEventListener('click', () => {
+        document.getElementById('sandboxUndoBtn').click();
+      });
+    }
+
+    state.coachActive = true;
+    card.hidden = false;
+    syncCoachButtons();
+  }
+
+  function toggleSandboxDeadGroup(x, y) {
+    if (sandboxEngine.get(x, y) === 0) return;
+    const total = sandboxEngine.size * sandboxEngine.size;
+    if (!state.sandboxDeadMap || state.sandboxDeadMap.length !== total) {
+      state.sandboxDeadMap = new Uint8Array(total);
+    }
+    const grp = sandboxEngine.getGroup(x, y);
+    if (!grp) return;
+    const firstIdx = sandboxEngine.idx(grp.stones[0].x, grp.stones[0].y);
+    const nextVal = state.sandboxDeadMap[firstIdx] === 1 ? 0 : 1;
+    for (const st of grp.stones) {
+      state.sandboxDeadMap[sandboxEngine.idx(st.x, st.y)] = nextVal;
+    }
+    audio.playPreviewTick();
+    renderSandboxScore();
   }
 
   function handleSandboxClick(x, y) {
     if (state.botThinking) return;
+    if (state.sandboxPhase === 'scoring') {
+      toggleSandboxDeadGroup(x, y);
+      return;
+    }
+    if (state.sandboxPhase === 'finished') {
+      setSandboxNotice('info', 'Ván cờ đã kết thúc! Nhấn "Sửa quân chết" hoặc "Ván mới" để chơi tiếp.');
+      return;
+    }
     if (state.sandboxMode === 'bot' && sandboxEngine.turn !== state.playerColor) return;
 
-    const res = sandboxEngine.playMove(x, y, sandboxEngine.turn);
+    const moverColor = sandboxEngine.turn;
+    const beforeSnap = sandboxEngine.clone();
+    const res = sandboxEngine.playMove(x, y, moverColor);
     if (!res.ok) {
       audio.playSoftError();
       const msg =
@@ -972,6 +1549,9 @@
       return;
     }
 
+    state.lastPlayerBeforeEngine = beforeSnap;
+    state.lastPlayerMove = { x, y, color: moverColor };
+    clearSandboxCoach();
     setSandboxNotice(null);
     audio.playStone({ isCapture: res.captured.length > 0, captureCount: res.captured.length });
     if (state.sandboxShowScore) renderSandboxScore();
@@ -994,19 +1574,24 @@
         if (res.ok) {
           audio.playStone({ isCapture: res.captured.length > 0, captureCount: res.captured.length });
         }
+        state.botThinking = false;
+        if (state.sandboxShowScore) renderSandboxScore();
+        sandboxRenderer.render();
+        updateSandboxStats();
       } else {
         const passRes = sandboxEngine.pass();
-        setSandboxNotice(
-          'info',
-          passRes.gameOver
-            ? 'Hai bên đều Bỏ lượt — ván cờ kết thúc! Nhấn "Đếm điểm" để xem kết quả.'
-            : 'Máy đã Bỏ lượt (Pass). Tới lượt bạn!'
-        );
+        state.botThinking = false;
+        sandboxRenderer.render();
+        updateSandboxStats();
+        if (passRes.gameOver) {
+          enterSandboxScoringPhase(
+            'Hai bên đã Bỏ lượt liên tiếp — ván cờ kết thúc! Hệ thống đã tự nhận diện quân chết, hãy kiểm tra và nhấn "Chốt kết quả".'
+          );
+        } else {
+          if (state.sandboxShowScore) renderSandboxScore();
+          setSandboxNotice('info', 'Máy đã Bỏ lượt (Pass). Tới lượt bạn (hoặc nhấn "Bỏ lượt" / "Kết thúc" để đếm điểm)!');
+        }
       }
-      state.botThinking = false;
-      if (state.sandboxShowScore) renderSandboxScore();
-      sandboxRenderer.render();
-      updateSandboxStats();
     }, 45);
   }
 
@@ -1232,8 +1817,8 @@
     });
     document.getElementById('demoLastBtn').addEventListener('click', () => {
       stopDemoAutoplay();
-      const lesson = getCurrentLesson();
-      applyDemoStep((lesson.demoSteps || []).length - 1, true);
+      const steps = getActiveVariation(getCurrentLesson()).steps || [];
+      applyDemoStep(steps.length - 1, true);
     });
     document.getElementById('demoPlayBtn').addEventListener('click', toggleDemoAutoplay);
 
@@ -1243,6 +1828,29 @@
     document.getElementById('prevLessonBtn').addEventListener('click', () => goToAdjacentLesson(-1));
     document.getElementById('nextLessonBtn').addEventListener('click', () => goToAdjacentLesson(1));
     document.getElementById('feedbackNextLessonBtn').addEventListener('click', () => goToAdjacentLesson(1));
+    document.getElementById('feedbackCompareBtn').addEventListener('click', () => {
+      const lesson = getCurrentLesson();
+      const variations = getLessonVariations(lesson);
+      let targetIdx = 0;
+      if (state.lastWrongCoord) {
+        const matched = variations.findIndex((v) => {
+          const mv = getFirstMoveOfVariation(v);
+          return mv && `${mv.x},${mv.y}` === state.lastWrongCoord;
+        });
+        if (matched >= 0) targetIdx = matched;
+        else {
+          const firstBad = variations.findIndex((v) => v.kind === 'bad');
+          if (firstBad >= 0) targetIdx = firstBad;
+        }
+      } else {
+        const firstGood = variations.findIndex((v) => v.kind === 'good' && getFirstMoveOfVariation(v));
+        if (firstGood >= 0) targetIdx = firstGood;
+      }
+      state.demoVariationIndex = targetIdx;
+      setTrainerMode('demo');
+      const steps = (variations[targetIdx] && variations[targetIdx].steps) || [];
+      applyDemoStep(steps.length > 1 ? 1 : 0, true);
+    });
 
     // Sandbox controls
     document.getElementById('mobileSandboxSettingsBtn').addEventListener('click', openSandboxSettings);
@@ -1285,24 +1893,35 @@
     });
     document.getElementById('sandboxUndoBtn').addEventListener('click', () => {
       if (state.botThinking) return;
+      if (state.sandboxPhase !== 'playing') {
+        resumeSandboxPlay();
+        return;
+      }
       if (sandboxEngine.history.length === 0) return;
       sandboxEngine.undo();
       if (state.sandboxMode === 'bot' && sandboxEngine.turn !== state.playerColor && sandboxEngine.history.length > 0) {
         sandboxEngine.undo();
       }
+      state.lastPlayerBeforeEngine = null;
+      state.lastPlayerMove = null;
+      clearSandboxCoach();
       if (state.sandboxShowScore) renderSandboxScore();
       sandboxRenderer.render();
       updateSandboxStats();
       setSandboxNotice(null);
     });
+    document.getElementById('sandboxCoachHintBtn').addEventListener('click', showSandboxCoachHint);
+    document.getElementById('sandboxCoachReviewBtn').addEventListener('click', showSandboxCoachReview);
+    document.getElementById('sandboxCoachClearBtn').addEventListener('click', clearSandboxCoach);
+    document.getElementById('closeCoachCardBtn').addEventListener('click', clearSandboxCoach);
     document.getElementById('sandboxPassBtn').addEventListener('click', () => {
-      if (state.botThinking) return;
+      if (state.botThinking || state.sandboxPhase !== 'playing') return;
       const res = sandboxEngine.pass();
       updateSandboxStats();
       if (res.gameOver) {
-        state.sandboxShowScore = true;
-        renderSandboxScore();
-        setSandboxNotice('info', 'Hai bên đều Bỏ lượt — ván cờ kết thúc và đã tự động đếm điểm!');
+        enterSandboxScoringPhase(
+          'Hai bên đã Bỏ lượt liên tiếp — ván cờ kết thúc! Hệ thống đã tự nhận diện quân chết, hãy kiểm tra và nhấn "Chốt kết quả".'
+        );
       } else if (state.sandboxMode === 'bot' && sandboxEngine.turn === getBotColor()) {
         setSandboxNotice('info', 'Bạn đã Bỏ lượt. Đợi máy phản hồi...');
         triggerBotTurn();
@@ -1316,10 +1935,48 @@
       sandboxRenderer.setShowLiberties(state.sandboxShowLiberties);
     });
     document.getElementById('sandboxScoreBtn').addEventListener('click', (e) => {
+      if (state.sandboxPhase !== 'playing') {
+        state.sandboxShowScore = true;
+        e.currentTarget.classList.add('active-toggle');
+        renderSandboxScore();
+        return;
+      }
       state.sandboxShowScore = !state.sandboxShowScore;
       e.currentTarget.classList.toggle('active-toggle', state.sandboxShowScore);
       renderSandboxScore();
     });
+    document.getElementById('sandboxFinishBtn').addEventListener('click', () => {
+      if (state.botThinking) return;
+      if (state.sandboxPhase === 'playing') {
+        enterSandboxScoringPhase();
+      } else if (state.sandboxPhase === 'scoring') {
+        finalizeSandboxScore();
+      } else {
+        state.sandboxShowScore = true;
+        renderSandboxScore();
+      }
+    });
+    document.getElementById('sandboxScoreRuleSwitch').addEventListener('click', (e) => {
+      const btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      state.sandboxScoreRule = btn.dataset.rule === 'chinese' ? 'chinese' : 'japanese';
+      renderSandboxScore();
+    });
+    document.getElementById('sandboxConfirmScoreBtn').addEventListener('click', finalizeSandboxScore);
+    document.getElementById('sandboxAutoDeadBtn').addEventListener('click', () => {
+      if (state.sandboxPhase !== 'scoring') return;
+      state.sandboxDeadMap = sandboxEngine.detectDeadStones(getActiveKomi());
+      audio.playPreviewTick();
+      renderSandboxScore();
+    });
+    document.getElementById('sandboxEditDeadBtn').addEventListener('click', () => {
+      state.sandboxPhase = 'scoring';
+      sandboxRenderer.setScoringMode(true);
+      renderSandboxScore();
+      setSandboxNotice('info', 'Đang sửa quân chết: chạm vào quân cờ trên bàn rồi nhấn "Chốt kết quả".');
+    });
+    document.getElementById('sandboxResumeGameBtn').addEventListener('click', resumeSandboxPlay);
+    document.getElementById('sandboxNewGameFromScoreBtn').addEventListener('click', initSandbox);
     document.getElementById('sandboxResetBtn').addEventListener('click', initSandbox);
 
     // Glossary controls

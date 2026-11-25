@@ -145,6 +145,8 @@
       this.pendingMove = null;
       this.annotations = [];
       this.territoryMap = null;
+      this.deadMap = null;
+      this.scoringMode = false;
       this.onCellClick = options.onCellClick || null;
       this.onCellHover = options.onCellHover || null;
       this.onPendingMoveChange = options.onPendingMoveChange || null;
@@ -203,6 +205,11 @@
     _setPendingCoord(coord) {
       if (!coord || !this.engine) {
         this.clearPendingMove();
+        return;
+      }
+      if (this.scoringMode) {
+        this.clearPendingMove();
+        if (this.onCellClick) this.onCellClick(coord.x, coord.y);
         return;
       }
       const check = this.engine.isLegalMove(coord.x, coord.y, this.hoverColor);
@@ -413,6 +420,20 @@
       this.render();
     }
 
+    setDeadMap(deadMap) {
+      this.deadMap = deadMap || null;
+      this.render();
+    }
+
+    setScoringMode(flag) {
+      this.scoringMode = Boolean(flag);
+      if (this.scoringMode) {
+        this.clearPendingMove();
+      }
+      this._syncTouchAction();
+      this.render();
+    }
+
     setShowLiberties(flag) {
       this.showLiberties = Boolean(flag);
       this.render();
@@ -520,8 +541,13 @@
       this._metrics = m;
 
       this._ensureStaticBackground(m, S);
-      if (this.territoryMap) this._drawTerritory(ctx, m);
-      this._drawStones(ctx, m);
+      if (this.deadMap) {
+        this._drawStones(ctx, m);
+        if (this.territoryMap) this._drawTerritory(ctx, m);
+      } else {
+        if (this.territoryMap) this._drawTerritory(ctx, m);
+        this._drawStones(ctx, m);
+      }
       this._drawLastMove(ctx, m);
       if (this.showLiberties) this._drawLiberties(ctx, m);
       this._drawHoverGhost(ctx, m);
@@ -690,8 +716,22 @@
         for (let x = m.minX; x <= m.maxX; x++) {
           const c = this.engine.get(x, y);
           if (c === EMPTY) continue;
+          const isDead = Boolean(this.deadMap && this.deadMap[this.engine.idx(x, y)] === 1);
           const { cx, cy } = this._boardToCanvas(x, y, m);
-          this._drawSingleStone(ctx, cx, cy, r, c, 1);
+          this._drawSingleStone(ctx, cx, cy, r, c, isDead ? 0.36 : 1);
+          if (isDead) {
+            ctx.save();
+            ctx.strokeStyle = c === BLACK ? '#ef4444' : '#dc2626';
+            ctx.lineWidth = Math.max(2, m.cell * 0.075);
+            const d = r * 0.42;
+            ctx.beginPath();
+            ctx.moveTo(cx - d, cy - d);
+            ctx.lineTo(cx + d, cy + d);
+            ctx.moveTo(cx + d, cy - d);
+            ctx.lineTo(cx - d, cy + d);
+            ctx.stroke();
+            ctx.restore();
+          }
         }
       }
     }
@@ -790,6 +830,25 @@
     _drawHoverGhost(ctx, m) {
       if (!this.interactive || !this.hoverCoord || this.pendingMove) return;
       const { x, y } = this.hoverCoord;
+      if (this.scoringMode) {
+        if (this.engine.get(x, y) === EMPTY) return;
+        const grp = this.engine.getGroup(x, y);
+        if (!grp) return;
+        ctx.save();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = Math.max(2, m.cell * 0.065);
+        ctx.setLineDash([4, 3]);
+        const r = m.cell * 0.49;
+        for (const st of grp.stones) {
+          if (st.x < m.minX || st.x > m.maxX || st.y < m.minY || st.y > m.maxY) continue;
+          const { cx, cy } = this._boardToCanvas(st.x, st.y, m);
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+        return;
+      }
       if (this.engine.get(x, y) !== EMPTY) return;
       const check = this.engine.isLegalMove(x, y, this.hoverColor);
       const { cx, cy } = this._boardToCanvas(x, y, m);
@@ -906,18 +965,34 @@
           ctx.arc(cx, cy, Math.max(4, m.cell * 0.14), 0, Math.PI * 2);
           ctx.fill();
         } else if (ann.type === 'label') {
-          if (stoneColor === EMPTY) {
-            ctx.fillStyle = 'rgba(222, 178, 108, 0.92)';
+          if (ann.badge) {
+            ctx.fillStyle = ann.color || '#16a34a';
             ctx.beginPath();
-            ctx.arc(cx, cy, m.cell * 0.3, 0, Math.PI * 2);
+            ctx.arc(cx, cy, m.cell * 0.34, 0, Math.PI * 2);
             ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = Math.max(1.5, m.cell * 0.05);
+            ctx.stroke();
+            ctx.fillStyle = '#ffffff';
+            const fs = Math.max(11, Math.min(18, m.cell * 0.44));
+            ctx.font = `700 ${fs}px system-ui, -apple-system, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(ann.text || '', cx, cy + 0.5);
+          } else {
+            if (stoneColor === EMPTY) {
+              ctx.fillStyle = 'rgba(222, 178, 108, 0.92)';
+              ctx.beginPath();
+              ctx.arc(cx, cy, m.cell * 0.3, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.fillStyle = stoneColor === BLACK ? '#f8fafc' : '#1e293b';
+            const fs = Math.max(11, Math.min(18, m.cell * 0.44));
+            ctx.font = `700 ${fs}px system-ui, -apple-system, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(ann.text || '', cx, cy + 0.5);
           }
-          ctx.fillStyle = stoneColor === BLACK ? '#f8fafc' : '#1e293b';
-          const fs = Math.max(11, Math.min(18, m.cell * 0.44));
-          ctx.font = `700 ${fs}px system-ui, -apple-system, sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(ann.text || '', cx, cy + 0.5);
         }
 
         ctx.restore();

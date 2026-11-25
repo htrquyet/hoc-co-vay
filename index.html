@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="css/styles.css" />
   <script defer src="js/go-engine.js"></script>
   <script defer src="js/curriculum-data.js"></script>
+  <script defer src="js/puzzle-library.js"></script>
   <script defer src="js/audio-engine.js"></script>
   <script defer src="js/goban-renderer.js"></script>
   <script defer src="js/app.js"></script>
@@ -36,7 +37,7 @@
         <button class="nav-tab" data-tab="trainer">
           <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>
           <span>Học Thế Cờ</span>
-          <span class="tab-count" id="navLessonCount">24</span>
+          <span class="tab-count" id="navLessonCount">42</span>
         </button>
         <button class="nav-tab" data-tab="sandbox">
           <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
@@ -51,7 +52,7 @@
       <div class="topbar-actions">
         <div class="progress-pill" title="Số thế cờ đã giải thành công">
           <span class="progress-dot"></span>
-          <span id="overallProgressText">0/24 thế cờ</span>
+          <span id="overallProgressText">0/42 thế cờ</span>
         </div>
         <button class="icon-btn" id="musicToggleBtn" title="Bật/Tắt nhạc nền thư giãn" aria-label="Nhạc nền"></button>
         <button class="icon-btn" id="soundToggleBtn" title="Bật/Tắt âm thanh đặt quân ASMR" aria-label="Âm thanh ASMR"></button>
@@ -73,13 +74,13 @@
           <h2>Từ người chưa biết gì đến thành thạo Cờ Vây</h2>
           <p>
             Lộ trình <strong>6 giai đoạn</strong> dẫn dắt bạn đi từ bàn nhỏ <code>9×9</code> đến bàn chuẩn <code>19×19</code>,
-            kết hợp minh họa trực quan từng nước đi và <strong>24 thế cờ tương tác</strong> chuẩn luật Nhật Bản.
+            kết hợp minh họa từng bước đi (nước tốt &amp; nước chưa tốt) và <strong>42 thế cờ tương tác</strong> chuẩn luật Nhật Bản.
           </p>
 
           <div class="hero-mastery-strip">
             <div class="mastery-top">
               <span>Trình độ hiện tại: <strong id="roadmapRankBadge">30 Kyu (Nhập môn)</strong></span>
-              <span id="roadmapProgressCaption" class="tabular">0/24 bài (0%)</span>
+              <span id="roadmapProgressCaption" class="tabular">0/42 bài (0%)</span>
             </div>
             <div class="stage-progress-bar mastery-bar">
               <div class="stage-progress-fill" id="roadmapProgressBar" style="width: 0%"></div>
@@ -154,7 +155,7 @@
           <div class="sidebar-header">
             <div class="sidebar-title-wrap">
               <h3>Danh Sách Bài Học</h3>
-              <span id="sidebarProgressBadge" class="badge">0/24</span>
+              <span id="sidebarProgressBadge" class="badge">0/42</span>
             </div>
             <button class="icon-btn drawer-close-btn" id="closeDrawerBtn" aria-label="Đóng danh sách">
               <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -193,7 +194,10 @@
 
           <div id="puzzleFeedbackBox" class="feedback-box info" hidden>
             <span id="puzzleFeedbackText"></span>
-            <button class="btn btn-sm btn-primary" id="feedbackNextLessonBtn" hidden>Bài tiếp theo →</button>
+            <div class="feedback-actions">
+              <button class="btn btn-sm btn-secondary" id="feedbackCompareBtn" hidden>🔍 Xem phân tích</button>
+              <button class="btn btn-sm btn-primary" id="feedbackNextLessonBtn" hidden>Bài tiếp theo →</button>
+            </div>
           </div>
 
           <div class="goban-frame card">
@@ -211,6 +215,7 @@
 
           <!-- Demo Controls -->
           <div id="demoControlsBar" class="controls-bar card">
+            <div class="variation-tabs" id="demoVariationTabs" role="tablist" aria-label="Chọn nhánh phân tích nước đi"></div>
             <div class="demo-nav">
               <button class="btn btn-sm btn-secondary" id="demoFirstBtn" title="Về bước đầu" aria-label="Bước đầu">⏮</button>
               <button class="btn btn-sm btn-secondary" id="demoPrevBtn" title="Bước trước (Phím mũi tên trái)">◀ Trước</button>
@@ -221,6 +226,7 @@
             </div>
             <div class="demo-dots" id="demoStepDots" aria-hidden="true"></div>
             <p class="demo-caption" id="demoCaptionText"></p>
+            <div class="demo-reason-box info" id="demoReasonBox" hidden></div>
             <button class="btn btn-primary btn-block" id="demoStartPuzzleBtn" hidden>Thử sức Giải thế cờ này →</button>
           </div>
 
@@ -250,6 +256,12 @@
             <h2 id="detailTitle"></h2>
             <p class="jp-term" id="detailJpTerm"></p>
             <p class="lesson-summary" id="detailSummary"></p>
+          </div>
+
+          <div class="theory-divider"></div>
+          <div class="compare-section" id="detailCompareSection">
+            <h3 class="compare-heading">So sánh nước đi Tốt &amp; Chưa tốt</h3>
+            <div id="detailCompareList" class="compare-list"></div>
           </div>
 
           <div class="theory-divider"></div>
@@ -340,17 +352,55 @@
               <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
               <span>Đếm điểm</span>
             </button>
+            <button class="btn btn-sm btn-secondary quick-action-btn" id="sandboxFinishBtn" title="Kết thúc ván để đánh dấu quân chết, đếm khí và tính thắng thua">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+              <span>Kết thúc</span>
+            </button>
             <button class="btn btn-sm btn-danger-ghost quick-action-btn" id="sandboxResetBtn">
               <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               <span>Ván mới</span>
             </button>
           </div>
 
+          <div class="sandbox-coach-bar card" id="sandboxCoachBar">
+            <span class="coach-bar-label">🎓 Huấn Luyện Viên AI</span>
+            <div class="coach-bar-actions">
+              <button class="btn btn-sm btn-secondary" id="sandboxCoachHintBtn" type="button" title="Phân tích thế trận hiện tại và gợi ý 3 nước đi tốt nhất kèm lý do">💡 Gợi ý nước đi</button>
+              <button class="btn btn-sm btn-secondary" id="sandboxCoachReviewBtn" type="button" title="Đánh giá nước đi gần nhất của bạn là tốt hay chưa tốt và tại sao" disabled>🔎 Phân tích nước vừa đi</button>
+              <button class="btn btn-sm btn-ghost" id="sandboxCoachClearBtn" type="button" hidden>Ẩn</button>
+            </div>
+          </div>
+
+          <div id="sandboxCoachCard" class="coach-card card" hidden>
+            <div class="coach-card-head">
+              <h4 id="sandboxCoachTitle">Phân tích từ Huấn Luyện Viên</h4>
+              <button class="icon-btn coach-close-btn" id="closeCoachCardBtn" type="button" aria-label="Đóng bảng phân tích">
+                <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div id="sandboxCoachBody" class="coach-card-body"></div>
+          </div>
+
           <div id="sandboxNotice" class="feedback-box info" hidden></div>
 
           <div id="sandboxScoreCard" class="score-card" hidden>
-            <h4 id="sandboxScoreTitle">Ước lượng điểm số (Komi 6.5)</h4>
+            <div class="score-card-head" id="sandboxScoreHeader">
+              <h4 id="sandboxScoreTitle">Ước lượng điểm số (Komi 6.5)</h4>
+              <div class="score-rule-switch" id="sandboxScoreRuleSwitch" role="group" aria-label="Luật tính điểm">
+                <button type="button" class="seg-btn active" data-rule="japanese">Luật Nhật (Đất)</button>
+                <button type="button" class="seg-btn" data-rule="chinese">Luật Trung (Quân+Đất)</button>
+              </div>
+            </div>
+            <div class="score-banner" id="sandboxScoreBanner" hidden></div>
+            <p class="score-hint-text" id="sandboxScoreHint" hidden></p>
             <div class="score-rows" id="sandboxScoreBody"></div>
+            <div class="score-actions" id="sandboxScoreActions" hidden>
+              <button class="btn btn-sm btn-primary" id="sandboxConfirmScoreBtn" type="button">✓ Chốt kết quả</button>
+              <button class="btn btn-sm btn-secondary" id="sandboxAutoDeadBtn" type="button">🪄 Tự nhận diện quân chết</button>
+              <button class="btn btn-sm btn-secondary" id="sandboxEditDeadBtn" type="button" hidden>✎ Sửa quân chết</button>
+              <button class="btn btn-sm btn-ghost" id="sandboxResumeGameBtn" type="button">↩ Đánh tiếp</button>
+              <button class="btn btn-sm btn-danger-ghost" id="sandboxNewGameFromScoreBtn" type="button">Ván mới</button>
+            </div>
           </div>
         </div>
 

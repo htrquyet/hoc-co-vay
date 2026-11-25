@@ -437,21 +437,48 @@
       return groups;
     }
 
-    estimateScore(komi = 6.5) {
-      const visited = new Uint8Array(this.size * this.size);
-      const territoryMap = new Int8Array(this.size * this.size); // 1=Black, 2=White, 0=neutral/occupied
+    scorePosition(komi = 6.5, deadMap = null) {
+      const totalCells = this.size * this.size;
+      const normDead = new Uint8Array(totalCells);
+      const virtualBoard = new Int8Array(this.board);
+      let deadBlackStones = 0;
+      let deadWhiteStones = 0;
+
+      if (deadMap) {
+        if (deadMap instanceof Set) {
+          for (const idx of deadMap) {
+            if (idx >= 0 && idx < totalCells && this.board[idx] !== EMPTY) {
+              normDead[idx] = 1;
+            }
+          }
+        } else if (typeof deadMap.length === 'number') {
+          const len = Math.min(deadMap.length, totalCells);
+          for (let i = 0; i < len; i++) {
+            if (deadMap[i] && this.board[i] !== EMPTY) {
+              normDead[i] = 1;
+            }
+          }
+        }
+      }
+
+      for (let i = 0; i < totalCells; i++) {
+        if (normDead[i] === 1) {
+          if (virtualBoard[i] === BLACK) deadBlackStones += 1;
+          else if (virtualBoard[i] === WHITE) deadWhiteStones += 1;
+          virtualBoard[i] = EMPTY;
+        }
+      }
+
+      const visited = new Uint8Array(totalCells);
+      const territoryMap = new Int8Array(totalCells); // 1=Black, 2=White, 0=neutral/dame
       let blackTerritory = 0;
       let whiteTerritory = 0;
-      let blackStones = 0;
-      let whiteStones = 0;
+      let dameCount = 0;
 
       for (let y = 0; y < this.size; y++) {
         for (let x = 0; x < this.size; x++) {
           const i = this.idx(x, y);
-          const c = this.board[i];
-          if (c === BLACK) blackStones += 1;
-          else if (c === WHITE) whiteStones += 1;
-          else if (!visited[i]) {
+          if (virtualBoard[i] === EMPTY && !visited[i]) {
             const region = [];
             const stack = [{ x, y }];
             visited[i] = 1;
@@ -463,7 +490,7 @@
               region.push(cur);
               for (const nb of this.neighbors(cur.x, cur.y)) {
                 const nIdx = this.idx(nb.x, nb.y);
-                const nColor = this.board[nIdx];
+                const nColor = virtualBoard[nIdx];
                 if (nColor === BLACK) touchesBlack = true;
                 else if (nColor === WHITE) touchesWhite = true;
                 else if (!visited[nIdx]) {
@@ -479,30 +506,170 @@
             } else if (touchesWhite && !touchesBlack) {
               whiteTerritory += region.length;
               for (const pt of region) territoryMap[this.idx(pt.x, pt.y)] = WHITE;
+            } else if (touchesBlack && touchesWhite) {
+              dameCount += region.length;
             }
           }
         }
       }
 
-      const blackTotal = blackTerritory + this.captures[BLACK];
-      const whiteTotal = whiteTerritory + this.captures[WHITE] + komi;
-      const blackArea = blackTerritory + blackStones;
-      const whiteArea = whiteTerritory + whiteStones + komi;
+      const grpVisited = new Uint8Array(totalCells);
+      let blackAliveStones = 0;
+      let whiteAliveStones = 0;
+      let blackGroups = 0;
+      let whiteGroups = 0;
+      let blackLiberties = 0;
+      let whiteLiberties = 0;
+
+      for (let y = 0; y < this.size; y++) {
+        for (let x = 0; x < this.size; x++) {
+          const i = this.idx(x, y);
+          const c = virtualBoard[i];
+          if (c !== EMPTY && !grpVisited[i]) {
+            const grp = this.getGroup(x, y, virtualBoard);
+            for (const st of grp.stones) {
+              grpVisited[this.idx(st.x, st.y)] = 1;
+            }
+            if (c === BLACK) {
+              blackGroups += 1;
+              blackAliveStones += grp.stones.length;
+              blackLiberties += grp.liberties.length;
+            } else if (c === WHITE) {
+              whiteGroups += 1;
+              whiteAliveStones += grp.stones.length;
+              whiteLiberties += grp.liberties.length;
+            }
+          }
+        }
+      }
+
+      const blackPrisoners = this.captures[BLACK] + deadWhiteStones;
+      const whitePrisoners = this.captures[WHITE] + deadBlackStones;
+      const blackTotal = blackTerritory + blackPrisoners;
+      const whiteTotal = whiteTerritory + whitePrisoners + komi;
+      const winner = blackTotal > whiteTotal ? BLACK : WHITE;
+      const margin = Math.abs(blackTotal - whiteTotal);
+
+      const blackArea = blackTerritory + blackAliveStones;
+      const whiteArea = whiteTerritory + whiteAliveStones + komi;
+      const areaWinner = blackArea > whiteArea ? BLACK : WHITE;
+      const areaMargin = Math.abs(blackArea - whiteArea);
 
       return {
         blackTerritory,
         whiteTerritory,
         blackCaptures: this.captures[BLACK],
         whiteCaptures: this.captures[WHITE],
+        deadWhiteStones,
+        deadBlackStones,
+        blackPrisoners,
+        whitePrisoners,
+        blackAliveStones,
+        whiteAliveStones,
+        blackGroups,
+        whiteGroups,
+        blackLiberties,
+        whiteLiberties,
+        dameCount,
         komi,
         blackTotal,
         whiteTotal,
         blackArea,
         whiteArea,
-        winner: blackTotal > whiteTotal ? BLACK : WHITE,
-        margin: Math.abs(blackTotal - whiteTotal),
-        territoryMap
+        winner,
+        margin,
+        areaWinner,
+        areaMargin,
+        territoryMap,
+        deadMap: normDead
       };
+    }
+
+    estimateScore(komi = 6.5) {
+      return this.scorePosition(komi, null);
+    }
+
+    detectDeadStones(komi = 6.5) {
+      const totalCells = this.size * this.size;
+      const deadMap = new Uint8Array(totalCells);
+      let stoneCount = 0;
+      for (let i = 0; i < totalCells; i++) {
+        if (this.board[i] !== EMPTY) stoneCount += 1;
+      }
+      if (stoneCount < 4) return deadMap;
+
+      const groups = this.getAllGroups();
+      const protectedGroups = new Set();
+
+      for (let gIdx = 0; gIdx < groups.length; gIdx++) {
+        const grp = groups[gIdx];
+        const eyeKeys = new Set();
+        for (const st of grp.stones) {
+          for (const nb of this.neighbors(st.x, st.y)) {
+            if (this.get(nb.x, nb.y) === EMPTY && this._isTrueEyeLike(nb.x, nb.y, grp.color)) {
+              eyeKeys.add(this.idx(nb.x, nb.y));
+            }
+          }
+        }
+        if (eyeKeys.size >= 2) {
+          protectedGroups.add(gIdx);
+        }
+      }
+
+      const ownerBlack = new Uint16Array(totalCells);
+      const ownerWhite = new Uint16Array(totalCells);
+      const numPlayouts = this.size >= 19 ? 16 : 24;
+      const playoutDepth = this.size >= 19 ? 36 : 32;
+      const startMs = Date.now();
+      let completed = 0;
+
+      for (let p = 0; p < numPlayouts; p++) {
+        if (p >= 6 && Date.now() - startMs >= 90) break;
+        const sim = this.clone();
+        sim._runFastPlayout(sim, BLACK, komi, playoutDepth);
+        const sc = sim.scorePosition(komi, null);
+        for (let i = 0; i < totalCells; i++) {
+          const cellColor = sim.board[i] !== EMPTY ? sim.board[i] : sc.territoryMap[i];
+          if (cellColor === BLACK) ownerBlack[i] += 1;
+          else if (cellColor === WHITE) ownerWhite[i] += 1;
+        }
+        completed += 1;
+      }
+
+      if (completed === 0) return deadMap;
+
+      for (let gIdx = 0; gIdx < groups.length; gIdx++) {
+        if (protectedGroups.has(gIdx)) continue;
+        const grp = groups[gIdx];
+        const opp = opponentOf(grp.color);
+        const oppCounts = opp === BLACK ? ownerBlack : ownerWhite;
+
+        let oppOwnershipSum = 0;
+        for (const st of grp.stones) {
+          oppOwnershipSum += oppCounts[this.idx(st.x, st.y)] / completed;
+        }
+        const avgOppRatio = oppOwnershipSum / grp.stones.length;
+
+        let trappedInAtari = false;
+        if (grp.liberties.length === 1) {
+          const lib = grp.liberties[0];
+          const oppChk = this.isLegalMove(lib.x, lib.y, opp);
+          if (oppChk.legal && oppChk.captures.length >= grp.stones.length) {
+            const selfChk = this.isLegalMove(lib.x, lib.y, grp.color);
+            if (!selfChk.legal || (selfChk.captures.length === 0 && selfChk.ownLiberties <= 1)) {
+              trappedInAtari = true;
+            }
+          }
+        }
+
+        if (avgOppRatio >= 0.75 || trappedInAtari) {
+          for (const st of grp.stones) {
+            deadMap[this.idx(st.x, st.y)] = 1;
+          }
+        }
+      }
+
+      return deadMap;
     }
 
     _isTrueEyeLike(x, y, color) {
@@ -582,6 +749,52 @@
       return bonus;
     }
 
+    _isInsideSettledOwnTerritory(x, y, color) {
+      if (this.get(x, y) !== EMPTY) return false;
+      const opp = opponentOf(color);
+      const totalCells = this.size * this.size;
+      const visited = new Uint8Array(totalCells);
+      const startIdx = this.idx(x, y);
+      visited[startIdx] = 1;
+      const stack = [{ x, y }];
+      let regionSize = 0;
+      let touchesOwn = false;
+      let touchesOpp = false;
+      let weakFriendly = false;
+      const checkedGroups = new Set();
+
+      while (stack.length > 0) {
+        const cur = stack.pop();
+        regionSize += 1;
+        if (regionSize > 14) return false;
+
+        for (const nb of this.neighbors(cur.x, cur.y)) {
+          const nIdx = this.idx(nb.x, nb.y);
+          const nc = this.board[nIdx];
+          if (nc === opp) {
+            touchesOpp = true;
+            return false;
+          } else if (nc === color) {
+            touchesOwn = true;
+            if (!checkedGroups.has(nIdx)) {
+              const grp = this.getGroup(nb.x, nb.y);
+              if (grp) {
+                for (const st of grp.stones) checkedGroups.add(this.idx(st.x, st.y));
+                if (grp.liberties.length <= 2) {
+                  weakFriendly = true;
+                }
+              }
+            }
+          } else if (!visited[nIdx]) {
+            visited[nIdx] = 1;
+            stack.push(nb);
+          }
+        }
+      }
+
+      return !touchesOpp && touchesOwn && regionSize <= 14 && !weakFriendly;
+    }
+
     _scoreCandidateMove(x, y, color, rankCfg, starKeys) {
       const check = this.isLegalMove(x, y, color);
       if (!check.legal) return -9999;
@@ -631,6 +844,11 @@
       if (putOppInAtari > 0 && check.ownLiberties >= 2) {
         score += 32 + putOppInAtari * 12;
         if (atariCount >= 2) score += 68; // Double Atari!
+      }
+
+      // Avoid filling inside own settled territory when unnecessary
+      if (check.captures.length === 0 && savedOwn === 0 && this._isInsideSettledOwnTerritory(x, y, color)) {
+        score -= 48;
       }
 
       // 3. Penalize self-atari unless it captures
@@ -792,7 +1010,8 @@
 
       if (candidates.length === 0) return null;
       candidates.sort((a, b) => b.score - a.score);
-      if (candidates[0].score < -18) return null;
+      if (this.consecutivePasses >= 1 && candidates[0].score < 18) return null;
+      if (candidates[0].score < -8) return null;
 
       // 20k: friendly beginner mode picks randomly among top few reasonable candidates
       if (rankCfg.topPool > 1) {
@@ -908,6 +1127,369 @@
 
     getSmartBotMove(color = this.turn) {
       return this.getBotMove(color, '10k', 6.5);
+    }
+
+    _inspectMoveTactics(x, y, color = this.turn) {
+      const check = this.isLegalMove(x, y, color);
+      if (!check.legal) return null;
+
+      const opp = opponentOf(color);
+      const edgeMax = this.size - 1;
+      const lineX = Math.min(x, edgeMax - x) + 1;
+      const lineY = Math.min(y, edgeMax - y) + 1;
+      const minLine = Math.min(lineX, lineY);
+      const isOpening = this.moveCount < (this.size >= 19 ? 28 : 12);
+      const starKeys = new Set(getStarPoints(this.size).map((p) => `${p.x},${p.y}`));
+      const isCornerStar = starKeys.has(`${x},${y}`) && minLine >= 3 && minLine <= 4;
+      const isThirdFourthCorner = (lineX === 3 || lineX === 4) && (lineY === 3 || lineY === 4);
+
+      let savedOwn = 0;
+      let atariCount = 0;
+      let putOppInAtari = 0;
+      const seenFriendRoots = new Set();
+      const seenOppRoots = new Set();
+
+      for (const nb of this.neighbors(x, y)) {
+        const c = this.get(nb.x, nb.y);
+        if (c === color) {
+          const grp = this.getGroup(nb.x, nb.y);
+          if (grp) {
+            const rootKey = this.idx(grp.stones[0].x, grp.stones[0].y);
+            if (!seenFriendRoots.has(rootKey)) {
+              seenFriendRoots.add(rootKey);
+              if (grp.liberties.length === 1) savedOwn += grp.stones.length;
+            }
+          }
+        } else if (c === opp) {
+          const grp = this.getGroup(nb.x, nb.y);
+          if (grp) {
+            const rootKey = this.idx(grp.stones[0].x, grp.stones[0].y);
+            if (!seenOppRoots.has(rootKey)) {
+              seenOppRoots.add(rootKey);
+              if (grp.liberties.length === 2) {
+                atariCount += 1;
+                putOppInAtari += grp.stones.length;
+              }
+            }
+          }
+        }
+      }
+
+      const connectsGroups = seenFriendRoots.size >= 2;
+      const cutsEnemy = seenOppRoots.size >= 2 && check.ownLiberties >= 2;
+      const selfAtari = check.ownLiberties === 1 && check.captures.length === 0;
+      const emptyTriangle =
+        savedOwn === 0 && check.captures.length === 0 && this._wouldFormEmptyTriangle(x, y, color);
+      const goodShape = this._wouldFormBambooOrTiger(x, y, color) > 0;
+      const insideOwnTerritory =
+        check.captures.length === 0 &&
+        savedOwn === 0 &&
+        this._isInsideSettledOwnTerritory(x, y, color);
+
+      let counterCaptured = false;
+      if (check.ownLiberties === 1 && check.captures.length === 0) {
+        const sim = this.clone();
+        if (sim.playMove(x, y, color).ok) {
+          const placedGrp = sim.getGroup(x, y);
+          if (placedGrp && placedGrp.liberties.length === 1) {
+            const lib = placedGrp.liberties[0];
+            const oppChk = sim.isLegalMove(lib.x, lib.y, opp);
+            if (oppChk.legal && oppChk.captures.length >= placedGrp.stones.length) {
+              counterCaptured = true;
+            }
+          }
+        }
+      }
+
+      const nearLastMove =
+        this.lastMove && Math.abs(this.lastMove.x - x) + Math.abs(this.lastMove.y - y) <= 3;
+
+      const tags = [];
+      const parts = [];
+
+      if (check.captures.length > 0) {
+        tags.push(`Ăn ${check.captures.length} quân`);
+        parts.push(`Ăn ngay ${check.captures.length} quân đối phương, tăng khí và thu về ${check.captures.length} tù binh.`);
+      }
+      if (savedOwn > 0 && check.ownLiberties >= 2) {
+        tags.push('Cứu Atari');
+        parts.push(`Cứu ${savedOwn} quân đang bị chiếu bắt (Atari) lên ${check.ownLiberties} khí an toàn.`);
+      }
+      if (atariCount >= 2 && check.ownLiberties >= 2) {
+        tags.push('Song Chiếu');
+        parts.push(`Đòn Song Chiếu (Double Atari) đồng thời ép ${atariCount} nhóm địch xuống còn 1 khí.`);
+      } else if (putOppInAtari > 0 && check.ownLiberties >= 2) {
+        tags.push('Chiếu bắt');
+        parts.push(`Đặt ${putOppInAtari} quân địch vào trạng thái Atari (còn 1 khí), ép đối phương phải đỡ.`);
+      }
+      if (cutsEnemy) {
+        tags.push('Cắt địch');
+        parts.push('Chen vào điểm cắt để chia rẽ hai nhóm quân đối phương.');
+      }
+      if (connectsGroups) {
+        tags.push('Nối quân');
+        parts.push('Liên kết các nhóm quân đang tách rời thành một khối vững chắc dùng chung khí.');
+      }
+      if (goodShape) {
+        tags.push('Hình cờ đẹp');
+        parts.push('Tạo hình cờ đẹp (Miệng Hổ / Nối Tre) vừa chắc khí vừa bảo vệ điểm cắt.');
+      }
+      if (isOpening && (isCornerStar || isThirdFourthCorner)) {
+        tags.push('Khai cuộc góc');
+        parts.push(
+          isCornerStar
+            ? 'Chiếm/giữ Điểm Sao ở góc (đường 4-4), cân bằng giữa lấy đất và thế lực.'
+            : 'Vị trí đường 3–4 ở góc rất hiệu quả để vây đất chắc chắn.'
+        );
+      }
+      if (selfAtari || counterCaptured) {
+        tags.push('Tự chiếu nguy hiểm');
+        parts.push(
+          counterCaptured
+            ? 'Sau khi đặt quân chỉ còn 1 khí và đối thủ có thể ăn ngược ngay lập tức!'
+            : 'Tự đặt quân vào thế chỉ còn 1 khí mà không ăn được quân nào (Self-Atari).'
+        );
+      }
+      if (insideOwnTerritory) {
+        tags.push('Đánh vào đất nhà');
+        parts.push('Điểm này nằm sâu trong vùng đất kín của chính bạn — tự làm giảm 1 điểm đất mà không tạo thêm giá trị.');
+      }
+      if (emptyTriangle) {
+        tags.push('Tam Giác Rỗng');
+        parts.push('Tạo hình Tam Giác Rỗng nặng nề, bị tụt khí và kém linh hoạt.');
+      }
+      if (isOpening && minLine === 1 && check.captures.length === 0 && savedOwn === 0) {
+        tags.push('Đường 1 quá thấp');
+        parts.push('Đánh ở đường 1 ngay từ khai cuộc rất thấp, không mở được nhiều đất hay thế lực.');
+      }
+
+      if (parts.length === 0) {
+        if (nearLastMove) {
+          tags.push('Giữ thế cục bộ');
+          parts.push('Phản ứng kịp thời quanh nước vừa đánh để giữ cân bằng khí và hình cờ.');
+        } else if (minLine === 3 || minLine === 4) {
+          tags.push('Mở rộng biên');
+          parts.push('Đứng ở đường 3–4 giúp cân bằng tốt giữa giữ đất biên và phát triển ra trung tâm.');
+        } else {
+          tags.push('Phát triển');
+          parts.push(`Giữ ${check.ownLiberties} khí ổn định và mở rộng tầm ảnh hưởng trên bàn cờ.`);
+        }
+      }
+
+      return {
+        x,
+        y,
+        coord: coordToString(x, y, this.size),
+        captures: check.captures.length,
+        ownLiberties: check.ownLiberties,
+        savedOwn,
+        atariCount,
+        putOppInAtari,
+        connectsGroups,
+        cutsEnemy,
+        selfAtari,
+        counterCaptured,
+        emptyTriangle,
+        goodShape,
+        insideOwnTerritory,
+        tags,
+        reason: parts.join(' ')
+      };
+    }
+
+    _scoreDeterministicMove(x, y, color, starKeys) {
+      const zeroRank = { noise: 0, topPool: 1, lookahead: 1, rollouts: 0 };
+      let adj = this._scoreCandidateMove(x, y, color, zeroRank, starKeys);
+      if (adj <= -500) return adj;
+
+      const opp = opponentOf(color);
+      const sim = this.clone();
+      if (sim.playMove(x, y, color).ok) {
+        const placedGrp = sim.getGroup(x, y);
+        if (placedGrp && placedGrp.liberties.length === 1) {
+          const lib = placedGrp.liberties[0];
+          const oppChk = sim.isLegalMove(lib.x, lib.y, opp);
+          if (oppChk.legal && oppChk.captures.length >= placedGrp.stones.length) {
+            adj -= 55 + placedGrp.stones.length * 16;
+          }
+        }
+      }
+      return adj;
+    }
+
+    getCoachSuggestions(color = this.turn, komi = 6.5) {
+      const zeroRank = { noise: 0, topPool: 1, lookahead: 1, rollouts: 0 };
+      const starKeys = new Set(getStarPoints(this.size).map((p) => `${p.x},${p.y}`));
+      const rawCandidates = [];
+
+      for (let y = 0; y < this.size; y++) {
+        for (let x = 0; x < this.size; x++) {
+          const score = this._scoreCandidateMove(x, y, color, zeroRank, starKeys);
+          if (score > -500) {
+            rawCandidates.push({ x, y, score });
+          }
+        }
+      }
+
+      rawCandidates.sort((a, b) => b.score - a.score);
+
+      // Refine top 12 candidates with 1-ply counter-capture check
+      const opp = opponentOf(color);
+      const topLimit = Math.min(12, rawCandidates.length);
+      const refined = [];
+      for (let i = 0; i < topLimit; i++) {
+        const c = rawCandidates[i];
+        let adj = c.score;
+        const sim = this.clone();
+        if (sim.playMove(c.x, c.y, color).ok) {
+          const placedGrp = sim.getGroup(c.x, c.y);
+          if (placedGrp && placedGrp.liberties.length === 1) {
+            const lib = placedGrp.liberties[0];
+            const oppChk = sim.isLegalMove(lib.x, lib.y, opp);
+            if (oppChk.legal && oppChk.captures.length >= placedGrp.stones.length) {
+              adj -= 55 + placedGrp.stones.length * 16;
+            }
+          }
+        }
+        refined.push({ x: c.x, y: c.y, score: adj });
+      }
+      refined.sort((a, b) => b.score - a.score);
+
+      const bestScore = refined.length > 0 ? refined[0].score : -999;
+      const suggestPass =
+        refined.length === 0 || (this.consecutivePasses >= 1 && bestScore < 18) || bestScore < -8;
+
+      const alerts = [];
+      const ownAtariGroups = [];
+      const oppAtariGroups = [];
+      for (const grp of this.getAllGroups()) {
+        if (grp.liberties.length === 1) {
+          const coord = coordToString(grp.stones[0].x, grp.stones[0].y, this.size);
+          if (grp.color === color) ownAtariGroups.push(`${coord} (${grp.stones.length} quân)`);
+          else oppAtariGroups.push(`${coord} (${grp.stones.length} quân)`);
+        }
+      }
+      if (oppAtariGroups.length > 0) {
+        alerts.push(`Có quân địch đang bị Atari (còn 1 khí) tại ${oppAtariGroups.slice(0, 2).join(', ')} — có thể ăn ngay!`);
+      }
+      if (ownAtariGroups.length > 0) {
+        alerts.push(`Cảnh báo: quân của bạn tại ${ownAtariGroups.slice(0, 2).join(', ')} chỉ còn 1 khí (Atari)!`);
+      }
+
+      const recommendations = [];
+      const letters = ['A', 'B', 'C'];
+      for (const cand of refined) {
+        if (recommendations.length >= 3) break;
+        if (recommendations.length > 0 && cand.score < -10) break;
+        const info = this._inspectMoveTactics(cand.x, cand.y, color);
+        if (!info) continue;
+        const delta = bestScore - cand.score;
+        const quality =
+          recommendations.length === 0 ? 'best' : delta <= 12 ? 'good' : 'ok';
+        recommendations.push({
+          letter: letters[recommendations.length],
+          quality,
+          score: cand.score,
+          ...info
+        });
+      }
+
+      // Find up to 2 instructive bad/trap moves near existing action
+      const warnings = [];
+      const recKeys = new Set(recommendations.map((r) => `${r.x},${r.y}`));
+      const badPool = [];
+      for (let i = rawCandidates.length - 1; i >= 0 && badPool.length < 40; i--) {
+        const c = rawCandidates[i];
+        if (recKeys.has(`${c.x},${c.y}`)) continue;
+        // Focus on moves adjacent to stones or lastMove so warnings feel relevant
+        let nearStone = false;
+        for (const nb of this.neighbors(c.x, c.y)) {
+          if (this.get(nb.x, nb.y) !== EMPTY) {
+            nearStone = true;
+            break;
+          }
+        }
+        if (!nearStone) continue;
+        const info = this._inspectMoveTactics(c.x, c.y, color);
+        if (!info) continue;
+        if (info.selfAtari || info.counterCaptured || info.insideOwnTerritory || (info.emptyTriangle && c.score < 5)) {
+          badPool.push({ score: c.score, info });
+        }
+      }
+      badPool.sort((a, b) => a.score - b.score);
+      for (const item of badPool.slice(0, 2)) {
+        warnings.push({
+          letter: '✕',
+          quality: 'bad',
+          score: item.score,
+          ...item.info
+        });
+      }
+
+      return {
+        color,
+        komi,
+        suggestPass,
+        alerts,
+        recommendations,
+        warnings
+      };
+    }
+
+    evaluatePlayedMove(x, y, color = this.turn, komi = 6.5) {
+      const info = this._inspectMoveTactics(x, y, color);
+      if (!info) return null;
+
+      const starKeys = new Set(getStarPoints(this.size).map((p) => `${p.x},${p.y}`));
+      const playedScore = this._scoreDeterministicMove(x, y, color, starKeys);
+      const coach = this.getCoachSuggestions(color, komi);
+      const bestMove = coach.recommendations[0] || null;
+      const bestScore = bestMove ? bestMove.score : playedScore;
+      const delta = Math.max(0, bestScore - playedScore);
+      const isTopChoice = Boolean(bestMove && bestMove.x === x && bestMove.y === y);
+
+      let grade = 'good';
+      let gradeLabel = '✓ Nước đi Tốt';
+      if (info.counterCaptured || info.selfAtari || info.insideOwnTerritory || delta > 42) {
+        grade = 'mistake';
+        gradeLabel = '⚠️ Nước đi Chưa tốt';
+      } else if (isTopChoice || (delta <= 5 && !info.emptyTriangle)) {
+        grade = 'excellent';
+        gradeLabel = '🌟 Nước đi Xuất sắc';
+      } else if (delta <= 18 && !info.emptyTriangle) {
+        grade = 'good';
+        gradeLabel = '✓ Nước đi Tốt';
+      } else {
+        grade = 'inaccurate';
+        gradeLabel = '△ Nước đi Chưa tối ưu';
+      }
+
+      let summary = '';
+      if (grade === 'excellent') {
+        summary = `Bạn chọn đúng điểm mạnh nhất tại ${info.coord}.`;
+      } else if (grade === 'good') {
+        summary = `Nước ${info.coord} hợp lý và bám sát thế trận${bestMove && !isTopChoice ? ` (gần ngang với ${bestMove.coord})` : ''}.`;
+      } else if (grade === 'inaccurate') {
+        summary = `Nước ${info.coord} chơi được nhưng chưa tối ưu${bestMove ? ` — có lựa chọn mạnh hơn tại ${bestMove.coord}` : ''}.`;
+      } else {
+        summary = `Nước ${info.coord} có điểm yếu lớn hoặc bỏ lỡ cơ hội quan trọng${bestMove ? ` tại ${bestMove.coord}` : ''}.`;
+      }
+
+      return {
+        grade,
+        gradeLabel,
+        playedCoord: info.coord,
+        x,
+        y,
+        playedScore,
+        bestScore,
+        delta,
+        tags: info.tags,
+        playedReason: info.reason,
+        bestMove: bestMove && !isTopChoice ? bestMove : null,
+        alerts: coach.alerts,
+        summary
+      };
     }
   }
 

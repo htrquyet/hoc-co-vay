@@ -14,7 +14,10 @@ const {
   getStarPoints,
   GoEngine
 } = require('../js/go-engine.js');
-const { ROADMAP_STAGES, LESSONS, GLOSSARY } = require('../js/curriculum-data.js');
+const academy = require('../js/curriculum-data.js');
+const { applyPuzzleLibrary } = require('../js/puzzle-library.js');
+applyPuzzleLibrary(academy);
+const { ROADMAP_STAGES, LESSONS, GLOSSARY } = academy;
 const { BOARD_SKINS, getSkinById, GobanRenderer } = require('../js/goban-renderer.js');
 const { MUSIC_TRACKS, ACOUSTIC_PROFILES, GoAudioEngine } = require('../js/audio-engine.js');
 
@@ -104,7 +107,7 @@ assert.equal(getStarPoints(19).length, 9);
   assert.equal(e.get(5, 4), BLACK);
 }
 
-// Territory estimation
+// Territory estimation, Dead-stone scoring, Liberty stats, Dead-stone detection & Bot pass
 {
   const e = new GoEngine(9);
   // Black walls column x=2, White walls column x=6
@@ -119,6 +122,114 @@ assert.equal(getStarPoints(19).length, 9);
   assert.equal(sc.blackTerritory, 18);
   assert.equal(sc.whiteTerritory, 18);
   assert.equal(sc.winner, WHITE); // Komi 6.5 breaks tie
+  assert.equal(sc.blackLiberties, 18); // x=1 (9) + x=3 (9)
+  assert.equal(sc.whiteLiberties, 18); // x=5 (9) + x=7 (9)
+
+  // Add a dead White stone inside Black's territory at (0, 4)
+  const eDead = new GoEngine(9);
+  eDead.setPosition({ black: blacks, white: [...whites, [0, 4]] });
+  const deadMap = new Uint8Array(81);
+  deadMap[eDead.idx(0, 4)] = 1;
+  const scDead = eDead.scorePosition(6.5, deadMap);
+  assert.equal(scDead.deadWhiteStones, 1);
+  assert.equal(scDead.blackTerritory, 18); // dead stone cell becomes Black territory
+  assert.equal(scDead.blackPrisoners, 1);
+  assert.equal(scDead.blackTotal, 19);
+  assert.equal(scDead.whiteTotal, 24.5);
+
+  // detectDeadStones: should mark trapped 1-liberty stone inside enemy territory, and NOT mark 2-eye group
+  const eDetect = new GoEngine(9);
+  eDetect.setPosition({
+    black: [
+      ...blacks,
+      [0, 3], [1, 4], [0, 5], // surrounds W(0,4) leaving 0 libs? wait (0,4) has 0 libs if [0,3],[1,4],[0,5]! Leave (0,5) empty -> 1 lib!
+      [1, 0], [0, 1] // wait let's put 2-eye Black group & trapped White stone cleanly
+    ],
+    white: whites
+  });
+  // Clean 2-eye Black living group in top-left + trapped White stone at (1, 6) surrounded on 3 sides by Black
+  eDetect.setPosition({
+    black: [
+      [1, 0], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [5, 0], // eyes at (2,0) and (4,0) with (3,0) B!
+      [3, 0],
+      [0, 5], [1, 5], [2, 5], [2, 6], [2, 7], [1, 7], [0, 7]
+    ],
+    white: [
+      [1, 6], // 1 liberty at (0,6) trapped in Atari inside Black pocket
+      [6, 0], [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6], [6, 7], [6, 8],
+      [7, 1], [8, 1]
+    ]
+  }, BLACK);
+  const autoDead = eDetect.detectDeadStones(6.5);
+  assert.equal(autoDead[eDetect.idx(1, 6)], 1, 'Trapped stone W(1,6) should be auto-detected as dead');
+  assert.equal(autoDead[eDetect.idx(1, 0)], 0, '2-eye living Black group must NOT be marked dead');
+
+  // Settled board Bot pass after opponent passes
+  const ePass = new GoEngine(9);
+  const pBlacks = [];
+  const pWhites = [];
+  for (let y = 0; y < 9; y++) {
+    pBlacks.push([3, y]);
+    pWhites.push([5, y]);
+  }
+  // Fill neutral dame at x=4 except none, leave clean walls with eyes so no good moves remain
+  for (let y = 0; y < 9; y++) {
+    pBlacks.push([4, y]); // Wait: let's put [4,y] only on alternating or fill dame so board is settled
+  }
+  // Better settled 9x9: B owns cols 0..3 (wall at 3, eyes inside at (1,1),(1,7)), W owns cols 5..8 (wall at 5, eyes at (7,1),(7,7)), col 4 filled by B/W dame already
+  const settledB = [];
+  const settledW = [];
+  for (let y = 0; y < 9; y++) {
+    settledB.push([3, y]);
+    settledW.push([5, y]);
+    if (y % 2 === 0) settledB.push([4, y]);
+    else settledW.push([4, y]);
+    if (y !== 1 && y !== 7) {
+      settledB.push([1, y]);
+      settledW.push([7, y]);
+    }
+    settledB.push([0, y], [2, y]);
+    settledW.push([6, y], [8, y]);
+  }
+  ePass.setPosition({ black: settledB, white: settledW }, BLACK);
+  ePass.pass(); // Black passes
+  const botPassMove = ePass.getBotMove(WHITE, '1d', 6.5);
+  assert.equal(botPassMove, null, 'Bot should Pass (return null) on a settled board after opponent passes');
+
+  // AI Coach: getCoachSuggestions & evaluatePlayedMove
+  const coachCap = new GoEngine(9);
+  coachCap.setPosition({ black: [[3, 4], [5, 4], [4, 3]], white: [[4, 4]] }, BLACK);
+  const capHint = coachCap.getCoachSuggestions(BLACK, 6.5);
+  assert.ok(capHint.recommendations.length >= 1, 'Coach should return recommendations');
+  assert.equal(capHint.recommendations[0].x, 4);
+  assert.equal(capHint.recommendations[0].y, 5);
+  assert.ok(capHint.recommendations[0].tags.some((t) => t.includes('Ăn')), 'Top move should be tagged as capture');
+  assert.ok(capHint.alerts.length >= 1, 'Coach should alert about opponent stone in Atari');
+
+  const evalBest = coachCap.evaluatePlayedMove(4, 5, BLACK, 6.5);
+  assert.equal(evalBest.grade, 'excellent', 'Playing the Atari capture should be graded excellent');
+  const evalBad = coachCap.evaluatePlayedMove(0, 0, BLACK, 6.5);
+  assert.ok(evalBad.grade === 'mistake' || evalBad.grade === 'inaccurate', 'Missing Atari capture should be graded mistake/inaccurate');
+  assert.ok(evalBad.bestMove && evalBad.bestMove.x === 4 && evalBad.bestMove.y === 5, 'Should recommend (4,5) as better alternative');
+
+  // Coach: Atari save
+  const coachSave = new GoEngine(9);
+  coachSave.setPosition({ black: [[4, 4]], white: [[3, 4], [5, 4], [4, 3]] }, BLACK);
+  const saveHint = coachSave.getCoachSuggestions(BLACK, 6.5);
+  assert.equal(saveHint.recommendations[0].x, 4);
+  assert.equal(saveHint.recommendations[0].y, 5);
+
+  // Coach: settled board suggests Pass & runs fast on 19x19
+  const settledCoach = ePass.getCoachSuggestions(WHITE, 6.5);
+  assert.equal(settledCoach.suggestPass, true, 'Coach should suggest Pass on a settled board');
+
+  const e19Coach = new GoEngine(19);
+  e19Coach.setupHandicap(4);
+  const tCoach0 = Date.now();
+  const c19 = e19Coach.getCoachSuggestions(WHITE, 0.5);
+  const tCoachElapsed = Date.now() - tCoach0;
+  assert.ok(c19.recommendations.length === 3, '19x19 Coach should return 3 recommendations');
+  assert.ok(tCoachElapsed < 200, `19x19 Coach took too long: ${tCoachElapsed}ms`);
 }
 
 // Smart bot & 7 Dan ranks + Handicap system
@@ -158,7 +269,7 @@ console.log('✓ GoEngine core rules passed!');
 console.log(`2. Validating ${ROADMAP_STAGES.length} stages, ${LESSONS.length} lessons, and ${GLOSSARY.length} glossary terms...`);
 
 assert.equal(ROADMAP_STAGES.length, 6);
-assert.equal(LESSONS.length, 24);
+assert.equal(LESSONS.length, 42);
 
 const stageIds = new Set(ROADMAP_STAGES.map((s) => s.id));
 const lessonIds = new Set(LESSONS.map((l) => l.id));
@@ -259,19 +370,56 @@ for (const lesson of LESSONS) {
 
   walkTree(baseEngine, p.tree, 'root');
   assert.ok(solvedCount >= 1, `${lesson.id}: puzzle has no solved leaf!`);
-  console.log(`  ✓ ${lesson.code} ${lesson.title} (${lesson.boardSize}x${lesson.boardSize}, ${totalBranches} branches, ${solvedCount} winning line(s))`);
+
+  // Validate good/bad step-by-step variations
+  assert.ok(Array.isArray(lesson.variations) && lesson.variations.length >= 2, `${lesson.id}: expected >= 2 variations`);
+  assert.ok(lesson.variations.some((v) => v.kind === 'good'), `${lesson.id}: expected at least 1 good variation`);
+  for (const v of lesson.variations) {
+    assert.ok(v.label && v.summary, `${lesson.id} variation ${v.id}: missing label/summary`);
+    assert.ok(Array.isArray(v.steps) && v.steps.length > 0, `${lesson.id} variation ${v.id}: missing steps`);
+    const vPos = v.initialPosition || lesson.demoInitialPosition || lesson.puzzle.initialPosition;
+    checkNoDuplicateCoords(vPos, `${lesson.id} variation ${v.id}`);
+    const vEngine = new GoEngine(lesson.boardSize);
+    vEngine.setPosition(vPos, BLACK);
+    checkNoDeadInitialStones(vEngine, `${lesson.id} variation ${v.id}`);
+    for (let sIdx = 0; sIdx < v.steps.length; sIdx++) {
+      const st = v.steps[sIdx];
+      assert.ok(st.caption && st.caption.trim().length > 0, `${lesson.id} ${v.id} step ${sIdx} missing caption`);
+      assert.ok(st.why && st.why.trim().length > 0, `${lesson.id} ${v.id} step ${sIdx} missing why`);
+      if (Array.isArray(st.moves)) {
+        for (const mv of st.moves) {
+          const r = vEngine.playMove(mv.x, mv.y, mv.color);
+          assert.equal(
+            r.ok,
+            true,
+            `${lesson.id} ${v.id} step ${sIdx} illegal move (${mv.x},${mv.y}) color=${mv.color}: ${r.reason}`
+          );
+        }
+      }
+    }
+  }
+
+  console.log(`  ✓ ${lesson.code} ${lesson.title} (${lesson.boardSize}x${lesson.boardSize}, ${totalBranches} branches, ${lesson.variations.length} variations, ${solvedCount} winning line(s))`);
 }
 
 // Key tactical assertions
 assert.ok(tacticalOutcomes['lesson-1-1'].some((o) => o.capturedTotal === 1), '1.1 should capture 1 stone');
 assert.ok(tacticalOutcomes['lesson-1-2'].some((o) => o.capturedTotal === 1), '1.2 should capture 1 stone');
 assert.ok(tacticalOutcomes['lesson-1-4'].some((o) => o.capturedTotal === 1 && o.koPoint && o.koPoint.x === 4 && o.koPoint.y === 4), '1.4 should create Ko at (4,4)');
+assert.ok(tacticalOutcomes['lesson-1-5'].some((o) => o.capturedTotal === 2), '1.5 Edge Atari should capture 2 stones');
+assert.ok(tacticalOutcomes['lesson-1-6'].some((o) => o.capturedTotal === 2), '1.6 Counter-Capture should capture 2 stones');
 assert.ok(tacticalOutcomes['lesson-2-2'].some((o) => o.capturedTotal === 1), '2.2 Double Atari should capture 1 stone');
 assert.ok(tacticalOutcomes['lesson-2-3'].some((o) => o.capturedTotal === 4), '2.3 Ladder should capture 4 stones');
 assert.ok(tacticalOutcomes['lesson-2-4'].some((o) => o.capturedTotal === 3), '2.4 Net should capture 3 stones');
 assert.ok(tacticalOutcomes['lesson-2-5'].some((o) => o.capturedTotal === 7), '2.5 Snapback should capture 7 stones');
 assert.ok(tacticalOutcomes['lesson-2-6'].some((o) => o.capturedTotal === 6), '2.6 Semeai should capture 6 stones');
+assert.ok(tacticalOutcomes['lesson-2-7'].some((o) => o.capturedTotal === 3), '2.7 Crane Nest should capture 3 stones');
+assert.ok(tacticalOutcomes['lesson-2-8'].some((o) => o.capturedTotal === 5), '2.8 Damezumari should capture 5 stones');
+assert.ok(tacticalOutcomes['lesson-2-9'].some((o) => o.capturedTotal === 3), '2.9 Edge Cut should capture 3 stones');
+assert.ok(tacticalOutcomes['lesson-3-8'].some((o) => o.capturedTotal === 1 && o.koPoint && o.koPoint.x === 3 && o.koPoint.y === 2), '3.8 Ko for Life should create Ko at (3,2)');
 assert.ok(tacticalOutcomes['lesson-4-4'].some((o) => o.capturedTotal === 1), '4.4 Tiger Mouth should capture cutting stone');
+assert.ok(tacticalOutcomes['lesson-4-5'].some((o) => o.capturedTotal === 1), '4.5 Wedge should capture 1 stone');
+assert.ok(tacticalOutcomes['lesson-4-6'].some((o) => o.capturedTotal === 1), '4.6 Watari should capture cutting stone');
 
 console.log('3. Checking index.html assets and DOM ID bindings...');
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -291,7 +439,7 @@ for (const tabName of ['roadmap', 'trainer', 'sandbox', 'glossary']) {
     `Missing mobile bottom nav button for tab ${tabName}`
   );
 }
-for (const method of ['setTouchConfirm', 'getPendingMove', 'clearPendingMove', 'confirmPendingMove', 'setSkin']) {
+for (const method of ['setTouchConfirm', 'getPendingMove', 'clearPendingMove', 'confirmPendingMove', 'setSkin', 'setDeadMap', 'setScoringMode']) {
   assert.equal(typeof GobanRenderer.prototype[method], 'function', `Missing GobanRenderer.${method}`);
 }
 assert.equal(BOARD_SKINS.length, 6, 'Expected 6 board skins');
@@ -369,9 +517,15 @@ audioTest.setMusicEnabled(false, false);
 
 const css = fs.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
 assert.ok(
-  css.includes('.mobile-bottom-nav') && css.includes('.trainer-sidebar.open') && css.includes('.studio-panel'),
-  'Missing mobile responsive or studio CSS rules'
+  css.includes('.mobile-bottom-nav') &&
+    css.includes('.trainer-sidebar.open') &&
+    css.includes('.studio-panel') &&
+    css.includes('.variation-tabs') &&
+    css.includes('.score-liberties-box') &&
+    css.includes('.sandbox-coach-bar') &&
+    css.includes('.coach-card'),
+  'Missing mobile responsive, studio, variation, scoring, or coach CSS rules'
 );
 console.log(`✓ Verified ${domIds.length} DOM ID bindings, 6 board skins, ASMR/Zen audio engine, and all local assets!`);
 
-console.log('\nALL TESTS PASSED! Engine, UI bindings, and all 24 interactive lessons/puzzles are verified.');
+console.log('\nALL TESTS PASSED! Engine, scoring, UI bindings, and all 42 interactive lessons/puzzles are verified.');

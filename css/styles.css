@@ -2119,21 +2119,611 @@ body {
 @media (max-width: 640px) {
   .sandbox-quick-bar {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 4px;
-    padding: 6px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    padding: 7px;
   }
 
   .quick-action-btn {
-    flex-direction: column;
-    padding: 6px 2px;
-    gap: 3px;
-    font-size: 0.69rem;
-    min-height: 46px;
+    flex-direction: row;
+    padding: 7px 6px;
+    gap: 4px;
+    font-size: 0.72rem;
+    min-height: 40px;
   }
 
   .quick-action-btn .ui-icon {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
   }
+}
+
+/* ==================== STEP-BY-STEP MOVE COMPARISON & END-GAME SCORING ==================== */
+.feedback-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.variation-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.variation-pill {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.77rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.14s ease;
+}
+
+.variation-pill:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.variation-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--text-muted);
+}
+
+.variation-pill.good .variation-badge {
+  background: #16a34a;
+}
+
+.variation-pill.ok .variation-badge {
+  background: #d97706;
+}
+
+.variation-pill.bad .variation-badge {
+  background: #dc2626;
+}
+
+.variation-pill.good.active {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
+
+.variation-pill.ok.active {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+}
+
+.variation-pill.bad.active {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.demo-reason-box {
+  font-size: 0.84rem;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  line-height: 1.48;
+}
+
+.demo-reason-box[hidden] {
+  display: none;
+}
+
+.demo-reason-box.good {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.demo-reason-box.ok {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
+.demo-reason-box.bad {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.demo-reason-box.info {
+  background: var(--info-bg);
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 30%, transparent);
+}
+
+.compare-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compare-heading {
+  font-family: 'Noto Serif', 'Be Vietnam Pro', Georgia, serif;
+  font-size: 0.96rem;
+}
+
+.compare-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.compare-card {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  background: var(--bg-soft);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 9px 11px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 0.12s ease, background 0.14s ease;
+}
+
+.compare-card:hover {
+  background: var(--bg-subtle);
+}
+
+.compare-card.good {
+  border-left-color: var(--success);
+}
+
+.compare-card.ok {
+  border-left-color: var(--warning);
+}
+
+.compare-card.bad {
+  border-left-color: var(--danger);
+}
+
+.compare-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.compare-card-title {
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.compare-card-summary {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.quality-tag {
+  font-size: 0.69rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.quality-tag.good {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.quality-tag.ok {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.quality-tag.bad {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* ==================== SANDBOX SCORING CARD ==================== */
+.score-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.score-card-head h4 {
+  margin: 0;
+}
+
+.score-rule-switch {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--bg-elevated);
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+}
+
+.score-rule-switch .seg-btn {
+  padding: 4px 8px;
+  font-size: 0.73rem;
+  border: none;
+  background: transparent;
+}
+
+.score-rule-switch .seg-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.score-banner {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.score-banner[hidden],
+.score-hint-text[hidden],
+.score-actions[hidden] {
+  display: none;
+}
+
+.score-banner-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.score-margin-pill {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.score-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+  background: var(--border);
+}
+
+.score-bar-black {
+  background: #1f2937;
+  height: 100%;
+  transition: width 0.25s ease;
+}
+
+.score-bar-white {
+  background: #e5e7eb;
+  height: 100%;
+  transition: width 0.25s ease;
+}
+
+.score-hint-text {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  color: var(--info);
+  background: var(--info-bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.score-liberties-box {
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 9px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-liberties-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.score-liberties-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.lib-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.lib-stat > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lib-stat strong {
+  font-size: 0.84rem;
+}
+
+.lib-stat span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.score-note {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.score-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .score-liberties-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==================== SANDBOX AI COACH & MOVE ANALYSIS ==================== */
+.sandbox-coach-bar {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.coach-bar-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.coach-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.coach-card {
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+
+.coach-card[hidden] {
+  display: none;
+}
+
+.coach-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.coach-card-head h4 {
+  font-size: 0.95rem;
+}
+
+.coach-close-btn {
+  width: 32px;
+  height: 32px;
+}
+
+.coach-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.coach-alert {
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 0.81rem;
+  font-weight: 600;
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
+.coach-alert.info {
+  background: var(--info-bg);
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 30%, transparent);
+}
+
+.coach-warnings-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.coach-move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coach-move-item {
+  padding: 10px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  background: var(--bg-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.coach-move-item.best,
+.coach-move-item.good {
+  border-left-color: #16a34a;
+}
+
+.coach-move-item.ok {
+  border-left-color: #d97706;
+}
+
+.coach-move-item.bad {
+  border-left-color: #dc2626;
+}
+
+.coach-move-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.coach-move-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.88rem;
+}
+
+.coach-letter {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coach-letter.best {
+  background: #16a34a;
+}
+
+.coach-letter.good {
+  background: #0284c7;
+}
+
+.coach-letter.ok {
+  background: #d97706;
+}
+
+.coach-letter.bad {
+  background: #dc2626;
+}
+
+.coach-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.coach-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.coach-tag.bad {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.coach-reason {
+  margin: 0;
+  font-size: 0.81rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.coach-grade-banner {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.coach-grade-banner strong {
+  font-size: 0.9rem;
+}
+
+.coach-grade-banner p {
+  margin: 0;
+  font-size: 0.81rem;
+}
+
+.coach-grade-banner.excellent,
+.coach-grade-banner.good {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 32%, transparent);
+}
+
+.coach-grade-banner.inaccurate {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 32%, transparent);
+}
+
+.coach-grade-banner.mistake {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
 }
