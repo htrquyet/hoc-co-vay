@@ -271,12 +271,20 @@
   function openStudio() {
     closeLessonDrawer();
     document.getElementById('studioBackdrop').hidden = false;
-    document.getElementById('studioPanel').hidden = false;
+    const panel = document.getElementById('studioPanel');
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
   }
 
   function closeStudio() {
     document.getElementById('studioBackdrop').hidden = true;
-    document.getElementById('studioPanel').hidden = true;
+    const panel = document.getElementById('studioPanel');
+    panel.classList.remove('open');
+    panel.setAttribute('aria-hidden', 'true');
+    if (!document.getElementById('lessonDrawer').classList.contains('open')) {
+      document.body.classList.remove('modal-open');
+    }
   }
 
   function syncTouchConfirmButtons() {
@@ -317,12 +325,16 @@
   function closeLessonDrawer() {
     document.getElementById('lessonDrawer').classList.remove('open');
     document.getElementById('lessonDrawerBackdrop').hidden = true;
+    if (!document.getElementById('studioPanel').classList.contains('open')) {
+      document.body.classList.remove('modal-open');
+    }
   }
 
   function openLessonDrawer() {
     closeStudio();
     document.getElementById('lessonDrawer').classList.add('open');
     document.getElementById('lessonDrawerBackdrop').hidden = false;
+    document.body.classList.add('modal-open');
   }
 
   function switchTab(tabId) {
@@ -343,7 +355,10 @@
     } else if (tabId === 'sandbox' && sandboxRenderer) {
       sandboxRenderer.resize();
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({
+      top: 0,
+      behavior: window.innerWidth <= 860 ? 'auto' : 'smooth'
+    });
   }
 
   // ==================== TAB 1: ROADMAP ====================
@@ -1033,7 +1048,7 @@
 
     document.getElementById('studioToggleBtn').addEventListener('click', () => {
       const panel = document.getElementById('studioPanel');
-      if (panel.hidden) openStudio();
+      if (!panel.classList.contains('open')) openStudio();
       else closeStudio();
     });
     document.getElementById('closeStudioBtn').addEventListener('click', closeStudio);

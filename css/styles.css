@@ -1811,3 +1811,178 @@ code {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* ==================== MOBILE LIGHTWEIGHT POLISH & SMOOTHNESS ==================== */
+body.modal-open {
+  overflow: hidden;
+}
+
+.sheet-handle {
+  display: none;
+}
+
+/* Restrict hover lift strictly to mouse/hover devices */
+@media (hover: none) {
+  .stage-card:hover {
+    transform: none;
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+/* Smooth animated Studio Panel (Popover on Desktop, Bottom Sheet on Mobile) */
+.studio-panel {
+  display: flex;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-8px) scale(0.98);
+  transition: opacity 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), visibility 0.2s ease;
+}
+
+.studio-panel.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+@media (max-width: 860px) {
+  .topbar {
+    background: var(--bg-elevated);
+    backdrop-filter: none;
+  }
+
+  .mobile-bottom-nav {
+    background: var(--bg-elevated);
+    backdrop-filter: none;
+  }
+
+  .sheet-handle {
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border);
+    margin: 9px auto 0;
+    flex-shrink: 0;
+  }
+
+  .studio-panel {
+    transform: translateY(104%);
+    opacity: 1;
+    transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), visibility 0.26s ease;
+  }
+
+  .studio-panel.open {
+    transform: translateY(0);
+  }
+
+  /* Zero-layout-shift floating touch-confirm pill directly above bottom nav */
+  .confirm-bar {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    z-index: 55;
+    background: var(--bg-elevated);
+    border: 1.5px solid var(--accent);
+    box-shadow: var(--shadow);
+    padding: 10px 14px;
+    animation: confirmPopIn 0.16s ease-out;
+  }
+}
+
+@keyframes confirmPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  /* Keep topbar super clean on phones */
+  .progress-pill,
+  #soundToggleBtn {
+    display: none;
+  }
+
+  .hero-card {
+    padding: 16px;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+
+  .hero-formula {
+    padding: 14px;
+  }
+
+  .stage-card {
+    padding: 15px;
+    gap: 10px;
+  }
+
+  /* Keep Sandbox HUD on 1 compact horizontal row on all phones */
+  .sandbox-hud {
+    grid-template-columns: 1fr auto 1fr;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .player-pill {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .player-name {
+    font-size: 0.69rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .player-pill strong {
+    font-size: 0.74rem;
+  }
+
+  .turn-indicator-tag {
+    display: none;
+  }
+
+  .hud-center {
+    display: block;
+    padding: 0 4px;
+  }
+
+  /* Keep Sandbox action bar a crisp single 5-button row */
+  .sandbox-quick-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px;
+    padding: 7px;
+  }
+
+  .sandbox-quick-bar .btn-sm {
+    padding: 7px 4px;
+    font-size: 0.72rem;
+    min-height: 38px;
+    white-space: nowrap;
+  }
+
+  .board-toolbar {
+    padding: 6px 8px;
+  }
+
+  .mode-btn {
+    padding: 6px 9px;
+    font-size: 0.78rem;
+  }
+
+  .trainer-detail,
+  .sandbox-panel {
+    padding: 15px;
+  }
+}

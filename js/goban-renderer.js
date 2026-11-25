@@ -152,9 +152,13 @@
 
       this._metrics = null;
       this._pixelSize = 480;
+      this._dpr = 1;
       this._grainSeed = 42;
-      this._isDraggingTouch = false;
+      this._touchStart = null;
       this._lastPointerType = 'mouse';
+      this._rafId = null;
+      this._bgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+      this._bgCacheKey = '';
 
       this._bindEvents();
       this._syncTouchAction();
@@ -163,7 +167,8 @@
 
     setSkin(skinId) {
       this.skin = getSkinById(skinId);
-      this.render();
+      this._bgCacheKey = '';
+      this.scheduleRender();
       return this.skin;
     }
 
@@ -173,9 +178,21 @@
 
     _syncTouchAction() {
       if (!this.canvas) return;
-      this.canvas.style.touchAction =
-        this.interactive && this.touchConfirm ? 'none' : 'manipulation';
+      // Always allow natural page vertical scrolling over the board
+      this.canvas.style.touchAction = 'manipulation';
       this.canvas.style.cursor = this.interactive ? 'pointer' : 'default';
+    }
+
+    scheduleRender() {
+      if (typeof requestAnimationFrame !== 'function') {
+        this.render();
+        return;
+      }
+      if (this._rafId) return;
+      this._rafId = requestAnimationFrame(() => {
+        this._rafId = null;
+        this.render();
+      });
     }
 
     _emitPendingChange() {
@@ -241,35 +258,19 @@
         this._lastPointerType = e.pointerType || 'mouse';
         if (!this.interactive || !this.engine) return;
 
-        if (this._lastPointerType === 'touch' && this.touchConfirm) {
-          const coord = this._clientToBoard(e.clientX, e.clientY, 0.56);
-          if (!coord) return;
-          if (
-            this.pendingMove &&
-            this.pendingMove.x === coord.x &&
-            this.pendingMove.y === coord.y
-          ) {
-            this._isDraggingTouch = false;
-            this.confirmPendingMove();
-            return;
-          }
-          this._isDraggingTouch = true;
-          this._setPendingCoord(coord);
+        if (this._lastPointerType === 'touch') {
+          this._touchStart = {
+            x: e.clientX,
+            y: e.clientY,
+            pointerId: e.pointerId
+          };
         }
       };
 
       this._onPointerMove = (e) => {
         if (!this.interactive || !this.engine) return;
         const pType = e.pointerType || this._lastPointerType;
-
-        if (pType === 'touch' && this.touchConfirm) {
-          if (!this._isDraggingTouch) return;
-          const coord = this._clientToBoard(e.clientX, e.clientY, 0.56);
-          if (coord) {
-            this._setPendingCoord(coord);
-          }
-          return;
-        }
+        if (pType === 'touch') return;
 
         const coord = this._clientToBoard(e.clientX, e.clientY);
         const changed =
@@ -281,20 +282,43 @@
         if (changed) {
           this.hoverCoord = coord;
           if (this.onCellHover) this.onCellHover(coord);
-          this.render();
+          this.scheduleRender();
         }
       };
 
-      this._onPointerUp = () => {
-        this._isDraggingTouch = false;
+      this._onPointerUp = (e) => {
+        if (e.pointerType !== 'touch' || !this._touchStart) return;
+        const start = this._touchStart;
+        this._touchStart = null;
+        if (!this.interactive || !this.engine || !this.touchConfirm) return;
+
+        // Ignore scroll/swipe gestures so page scrolling stays 100% fluid
+        const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+        if (moved > 12) return;
+
+        const coord = this._clientToBoard(e.clientX, e.clientY, 0.56);
+        if (!coord) return;
+        if (
+          this.pendingMove &&
+          this.pendingMove.x === coord.x &&
+          this.pendingMove.y === coord.y
+        ) {
+          this.confirmPendingMove();
+        } else {
+          this._setPendingCoord(coord);
+        }
+      };
+
+      this._onPointerCancel = () => {
+        this._touchStart = null;
       };
 
       this._onPointerLeave = () => {
-        this._isDraggingTouch = false;
+        this._touchStart = null;
         if (this.hoverCoord) {
           this.hoverCoord = null;
           if (this.onCellHover) this.onCellHover(null);
-          this.render();
+          this.scheduleRender();
         }
       };
 
@@ -312,7 +336,7 @@
       this.canvas.addEventListener('pointerdown', this._onPointerDown);
       this.canvas.addEventListener('pointermove', this._onPointerMove);
       this.canvas.addEventListener('pointerup', this._onPointerUp);
-      this.canvas.addEventListener('pointercancel', this._onPointerUp);
+      this.canvas.addEventListener('pointercancel', this._onPointerCancel);
       this.canvas.addEventListener('pointerleave', this._onPointerLeave);
       this.canvas.addEventListener('click', this._onClick);
 
@@ -335,15 +359,21 @@
         avail = parent.clientWidth - padH;
       }
       const targetCssSize = Math.max(250, Math.min(avail, 560));
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      if (this._pixelSize === targetCssSize && this._dpr === dpr && this.canvas.width > 0) {
+        return;
+      }
 
       this._pixelSize = targetCssSize;
+      this._dpr = dpr;
+      this._bgCacheKey = '';
       this.canvas.style.width = `${targetCssSize}px`;
       this.canvas.style.height = `${targetCssSize}px`;
       this.canvas.width = Math.round(targetCssSize * dpr);
       this.canvas.height = Math.round(targetCssSize * dpr);
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this.render();
+      this.scheduleRender();
     }
 
     setEngine(engine) {
@@ -437,6 +467,34 @@
       return { x: gx, y: gy };
     }
 
+    _ensureStaticBackground(m, S) {
+      const cropKey = this.cropRect
+        ? `${this.cropRect.minX},${this.cropRect.maxX},${this.cropRect.minY},${this.cropRect.maxY}`
+        : 'full';
+      const key = `${this.skin.id}|${m.size}|${cropKey}|${S}|${this._dpr}|${this.showCoordinates ? 1 : 0}`;
+      if (!this._bgCanvas) {
+        this._drawBoardSurface(this.ctx, S);
+        this._drawGrid(this.ctx, m);
+        this._drawStarPoints(this.ctx, m);
+        if (this.showCoordinates) this._drawCoordinates(this.ctx, m);
+        return false;
+      }
+      if (this._bgCacheKey !== key) {
+        this._bgCacheKey = key;
+        const dpr = this._dpr || 1;
+        this._bgCanvas.width = Math.round(S * dpr);
+        this._bgCanvas.height = Math.round(S * dpr);
+        const bgCtx = this._bgCanvas.getContext('2d');
+        bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this._drawBoardSurface(bgCtx, S);
+        this._drawGrid(bgCtx, m);
+        this._drawStarPoints(bgCtx, m);
+        if (this.showCoordinates) this._drawCoordinates(bgCtx, m);
+      }
+      this.ctx.drawImage(this._bgCanvas, 0, 0, S, S);
+      return true;
+    }
+
     render() {
       const ctx = this.ctx;
       const S = this._pixelSize;
@@ -446,10 +504,7 @@
       const m = this._computeMetrics();
       this._metrics = m;
 
-      this._drawBoardSurface(ctx, S);
-      this._drawGrid(ctx, m);
-      this._drawStarPoints(ctx, m);
-      if (this.showCoordinates) this._drawCoordinates(ctx, m);
+      this._ensureStaticBackground(m, S);
       if (this.territoryMap) this._drawTerritory(ctx, m);
       this._drawStones(ctx, m);
       this._drawLastMove(ctx, m);
