@@ -268,6 +268,20 @@
 
     <!-- ==================== TAB 3: SANDBOX & BOT ==================== -->
     <section id="tab-sandbox" class="tab-panel">
+      <!-- Mobile match summary & settings trigger -->
+      <div class="mobile-sandbox-bar card">
+        <div class="mobile-sandbox-info">
+          <span class="eyebrow-mini">Ván đấu hiện tại</span>
+          <strong id="mobileSandboxSummary">9×9 · Máy 1D · Cầm Đen</strong>
+        </div>
+        <button class="btn btn-sm btn-secondary" id="mobileSandboxSettingsBtn" type="button">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Cài đặt</span>
+        </button>
+      </div>
+
+      <div id="sandboxSettingsBackdrop" class="drawer-backdrop" hidden></div>
+
       <div class="sandbox-layout">
         <div class="sandbox-board-col">
           <!-- Live Match HUD directly above the Goban -->
@@ -284,6 +298,7 @@
             <div class="hud-center">
               <span class="stat-label">Nước</span>
               <strong class="tabular" id="sandboxMoveCount">0</strong>
+              <span class="hud-thinking-tag" id="sandboxThinkingBadge" hidden>Đang tính...</span>
             </div>
 
             <div class="player-pill" id="sandboxWhiteHud">
@@ -309,73 +324,26 @@
           </div>
 
           <div class="sandbox-quick-bar card">
-            <button class="btn btn-sm btn-secondary" id="sandboxUndoBtn">↩ Đi lại</button>
-            <button class="btn btn-sm btn-secondary" id="sandboxPassBtn">⏭ Bỏ lượt</button>
-            <button class="btn btn-sm btn-ghost" id="sandboxLibertiesBtn">👁 Hiện Khí</button>
-            <button class="btn btn-sm btn-primary" id="sandboxScoreBtn">📊 Đếm điểm</button>
-            <button class="btn btn-sm btn-danger-ghost" id="sandboxResetBtn">🔄 Ván mới</button>
-          </div>
-        </div>
-
-        <aside class="sandbox-panel card">
-          <div>
-            <h3>Cài Đặt Bàn Cờ Thực Hành</h3>
-            <p class="muted">Thử nghiệm thế cờ, luyện đếm khí và đấu với máy trên kích thước tùy chọn (đầy đủ luật Ko &amp; Tự sát).</p>
-          </div>
-
-          <div class="control-group">
-            <label>Kích thước bàn cờ</label>
-            <div class="segmented" id="sandboxSizeGroup">
-              <button class="seg-btn active" data-size="9">9×9 (Nhanh)</button>
-              <button class="seg-btn" data-size="13">13×13 (Vừa)</button>
-              <button class="seg-btn" data-size="19">19×19 (Chuẩn)</button>
-            </div>
-          </div>
-
-          <div class="control-group">
-            <label>Chế độ chơi</label>
-            <div class="segmented" id="sandboxModeGroup">
-              <button class="seg-btn active" data-mode="bot">Đấu với Máy</button>
-              <button class="seg-btn" data-mode="two">Tự bày cờ 2 bên</button>
-            </div>
-          </div>
-
-          <div id="botSettingsWrap" class="bot-settings-wrap">
-            <div class="control-group">
-              <label>Cấp độ đối thủ (Kyu → Cửu Đẳng)</label>
-              <div class="rank-grid" id="botRankGroup"></div>
-              <p class="rank-desc-note" id="botRankDesc"></p>
-            </div>
-
-            <div class="control-group">
-              <label>Bạn cầm quân</label>
-              <div class="segmented" id="sandboxPlayerColorGroup">
-                <button class="seg-btn active" data-color="1">⚫ Cầm Đen (Đi trước)</button>
-                <button class="seg-btn" data-color="2">⚪ Cầm Trắng (Komi 6.5)</button>
-              </div>
-            </div>
-
-            <div class="control-group">
-              <label>Chấp quân thi đấu (Handicap — Đen đặt sẵn)</label>
-              <div class="segmented" id="sandboxHandicapGroup">
-                <button class="seg-btn active" data-handicap="0">Bằng</button>
-                <button class="seg-btn" data-handicap="2">2 quân</button>
-                <button class="seg-btn" data-handicap="3">3 quân</button>
-                <button class="seg-btn" data-handicap="4">4 quân</button>
-                <button class="seg-btn" data-handicap="5">5 quân</button>
-                <button class="seg-btn" data-handicap="9">9 quân</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="control-group">
-            <label>Giao diện bàn cờ (Skin)</label>
-            <div class="skin-mini-row" id="sandboxSkinRow"></div>
-          </div>
-
-          <div class="control-group">
-            <label>Thao tác trên điện thoại</label>
-            <button class="btn btn-sm btn-ghost btn-block" id="sandboxTouchModeBtn">Chạm 2 bước để đặt quân: Tắt</button>
+            <button class="btn btn-sm btn-secondary quick-action-btn" id="sandboxUndoBtn">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+              <span>Đi lại</span>
+            </button>
+            <button class="btn btn-sm btn-secondary quick-action-btn" id="sandboxPassBtn">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+              <span>Bỏ lượt</span>
+            </button>
+            <button class="btn btn-sm btn-ghost quick-action-btn" id="sandboxLibertiesBtn">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>Hiện Khí</span>
+            </button>
+            <button class="btn btn-sm btn-primary quick-action-btn" id="sandboxScoreBtn">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <span>Đếm điểm</span>
+            </button>
+            <button class="btn btn-sm btn-danger-ghost quick-action-btn" id="sandboxResetBtn">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              <span>Ván mới</span>
+            </button>
           </div>
 
           <div id="sandboxNotice" class="feedback-box info" hidden></div>
@@ -383,6 +351,76 @@
           <div id="sandboxScoreCard" class="score-card" hidden>
             <h4 id="sandboxScoreTitle">Ước lượng điểm số (Komi 6.5)</h4>
             <div class="score-rows" id="sandboxScoreBody"></div>
+          </div>
+        </div>
+
+        <aside class="sandbox-panel card" id="sandboxPanel" aria-label="Cài đặt ván cờ thực hành">
+          <div class="sheet-handle" aria-hidden="true"></div>
+          <div class="sandbox-panel-head">
+            <div>
+              <h3>Cài Đặt Bàn Cờ Thực Hành</h3>
+              <p class="muted">Chọn kích thước bàn, cấp độ đối thủ và thể thức thi đấu.</p>
+            </div>
+            <button class="icon-btn sandbox-sheet-close" id="closeSandboxSettingsBtn" type="button" aria-label="Đóng cài đặt">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+
+          <div class="sandbox-panel-body">
+            <div class="control-group">
+              <label>Kích thước bàn cờ</label>
+              <div class="segmented" id="sandboxSizeGroup">
+                <button class="seg-btn active" data-size="9">9×9 (Nhanh)</button>
+                <button class="seg-btn" data-size="13">13×13 (Vừa)</button>
+                <button class="seg-btn" data-size="19">19×19 (Chuẩn)</button>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <label>Chế độ chơi</label>
+              <div class="segmented" id="sandboxModeGroup">
+                <button class="seg-btn active" data-mode="bot">Đấu với Máy</button>
+                <button class="seg-btn" data-mode="two">Tự bày cờ 2 bên</button>
+              </div>
+            </div>
+
+            <div id="botSettingsWrap" class="bot-settings-wrap">
+              <div class="control-group">
+                <label>Cấp độ đối thủ (Kyu → Cửu Đẳng)</label>
+                <div class="rank-grid" id="botRankGroup"></div>
+                <p class="rank-desc-note" id="botRankDesc"></p>
+              </div>
+
+              <div class="control-group">
+                <label>Bạn cầm quân</label>
+                <div class="segmented" id="sandboxPlayerColorGroup">
+                  <button class="seg-btn active" data-color="1">⚫ Cầm Đen (Đi trước)</button>
+                  <button class="seg-btn" data-color="2">⚪ Cầm Trắng (Komi 6.5)</button>
+                </div>
+              </div>
+
+              <div class="control-group">
+                <label>Chấp quân thi đấu (Handicap — Đen đặt sẵn)</label>
+                <div class="segmented" id="sandboxHandicapGroup">
+                  <button class="seg-btn active" data-handicap="0">Bằng</button>
+                  <button class="seg-btn" data-handicap="2">2 quân</button>
+                  <button class="seg-btn" data-handicap="3">3 quân</button>
+                  <button class="seg-btn" data-handicap="4">4 quân</button>
+                  <button class="seg-btn" data-handicap="5">5 quân</button>
+                  <button class="seg-btn" data-handicap="9">9 quân</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <label>Giao diện bàn cờ (Skin)</label>
+              <div class="skin-mini-row" id="sandboxSkinRow"></div>
+            </div>
+
+            <div class="control-group">
+              <label>Thao tác trên điện thoại</label>
+              <button class="btn btn-sm btn-ghost btn-block" id="sandboxTouchModeBtn">Chạm 2 bước để đặt quân: Tắt</button>
+            </div>
           </div>
         </aside>
       </div>

@@ -45,7 +45,7 @@
     activeTab: 'roadmap',
     solvedLessons: new Set(),
     theme: 'light',
-    touchConfirm: isCoarsePointerDevice(),
+    touchConfirm: false,
     // Audio & Skin
     boardSkin: 'kaya',
     sfxEnabled: true,
@@ -270,6 +270,7 @@
 
   function openStudio() {
     closeLessonDrawer();
+    closeSandboxSettings();
     document.getElementById('studioBackdrop').hidden = false;
     const panel = document.getElementById('studioPanel');
     panel.classList.add('open');
@@ -282,7 +283,29 @@
     const panel = document.getElementById('studioPanel');
     panel.classList.remove('open');
     panel.setAttribute('aria-hidden', 'true');
-    if (!document.getElementById('lessonDrawer').classList.contains('open')) {
+    if (
+      !document.getElementById('lessonDrawer').classList.contains('open') &&
+      !document.getElementById('sandboxPanel').classList.contains('open')
+    ) {
+      document.body.classList.remove('modal-open');
+    }
+  }
+
+  function openSandboxSettings() {
+    closeLessonDrawer();
+    closeStudio();
+    document.getElementById('sandboxSettingsBackdrop').hidden = false;
+    document.getElementById('sandboxPanel').classList.add('open');
+    document.body.classList.add('modal-open');
+  }
+
+  function closeSandboxSettings() {
+    document.getElementById('sandboxSettingsBackdrop').hidden = true;
+    document.getElementById('sandboxPanel').classList.remove('open');
+    if (
+      !document.getElementById('lessonDrawer').classList.contains('open') &&
+      !document.getElementById('studioPanel').classList.contains('open')
+    ) {
       document.body.classList.remove('modal-open');
     }
   }
@@ -325,13 +348,17 @@
   function closeLessonDrawer() {
     document.getElementById('lessonDrawer').classList.remove('open');
     document.getElementById('lessonDrawerBackdrop').hidden = true;
-    if (!document.getElementById('studioPanel').classList.contains('open')) {
+    if (
+      !document.getElementById('studioPanel').classList.contains('open') &&
+      !document.getElementById('sandboxPanel').classList.contains('open')
+    ) {
       document.body.classList.remove('modal-open');
     }
   }
 
   function openLessonDrawer() {
     closeStudio();
+    closeSandboxSettings();
     document.getElementById('lessonDrawer').classList.add('open');
     document.getElementById('lessonDrawerBackdrop').hidden = false;
     document.body.classList.add('modal-open');
@@ -341,6 +368,7 @@
     stopDemoAutoplay();
     closeLessonDrawer();
     closeStudio();
+    closeSandboxSettings();
     state.activeTab = tabId;
 
     document.querySelectorAll('.nav-tab, .bottom-nav-btn').forEach((btn) => {
@@ -350,10 +378,14 @@
       panel.classList.toggle('active', panel.id === `tab-${tabId}`);
     });
 
-    if (tabId === 'trainer' && trainerRenderer) {
-      trainerRenderer.resize();
-    } else if (tabId === 'sandbox' && sandboxRenderer) {
-      sandboxRenderer.resize();
+    const resizeTarget =
+      tabId === 'trainer' ? trainerRenderer : tabId === 'sandbox' ? sandboxRenderer : null;
+    if (resizeTarget) {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => resizeTarget.resize());
+      } else {
+        resizeTarget.resize();
+      }
     }
     window.scrollTo({
       top: 0,
@@ -824,6 +856,17 @@
     renderBotRanks();
     document.getElementById('sandboxScoreTitle').textContent =
       `Ước lượng điểm số (Komi ${getActiveKomi()})`;
+
+    const summaryEl = document.getElementById('mobileSandboxSummary');
+    const sizeLabel = `${state.sandboxSize}×${state.sandboxSize}`;
+    if (isBot) {
+      const rankShort = getRankConfig(state.botRank).short;
+      const colorLabel = state.playerColor === BLACK ? 'Cầm Đen' : 'Cầm Trắng';
+      const hcapLabel = state.handicap >= 2 ? ` · Chấp ${state.handicap}` : '';
+      summaryEl.textContent = `${sizeLabel} · Máy ${rankShort} · ${colorLabel}${hcapLabel}`;
+    } else {
+      summaryEl.textContent = `${sizeLabel} · Tự bày cờ 2 bên`;
+    }
   }
 
   function initSandbox() {
@@ -888,6 +931,7 @@
     document.getElementById('sandboxWhiteHud').classList.toggle('active-turn', !isBlackTurn);
     blackTag.hidden = !isBlackTurn;
     whiteTag.hidden = isBlackTurn;
+    document.getElementById('sandboxThinkingBadge').hidden = !state.botThinking;
 
     document.getElementById('sandboxMoveCount').textContent = String(sandboxEngine.moveCount);
     document.getElementById('sandboxBlackCaps').textContent = `${sandboxEngine.captures[BLACK]} tù binh`;
@@ -1201,6 +1245,10 @@
     document.getElementById('feedbackNextLessonBtn').addEventListener('click', () => goToAdjacentLesson(1));
 
     // Sandbox controls
+    document.getElementById('mobileSandboxSettingsBtn').addEventListener('click', openSandboxSettings);
+    document.getElementById('closeSandboxSettingsBtn').addEventListener('click', closeSandboxSettings);
+    document.getElementById('sandboxSettingsBackdrop').addEventListener('click', closeSandboxSettings);
+
     document.getElementById('sandboxSizeGroup').addEventListener('click', (e) => {
       const btn = e.target.closest('.seg-btn');
       if (!btn) return;
@@ -1293,6 +1341,7 @@
       if (e.key === 'Escape') {
         closeLessonDrawer();
         closeStudio();
+        closeSandboxSettings();
         return;
       }
       if (state.activeTab !== 'trainer') return;

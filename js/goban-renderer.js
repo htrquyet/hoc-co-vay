@@ -141,8 +141,7 @@
       this.interactive = options.interactive !== false;
       this.hoverColor = BLACK;
       this.hoverCoord = null;
-      this.touchConfirm =
-        typeof options.touchConfirm === 'boolean' ? options.touchConfirm : detectCoarsePointer();
+      this.touchConfirm = Boolean(options.touchConfirm);
       this.pendingMove = null;
       this.annotations = [];
       this.territoryMap = null;
@@ -207,7 +206,11 @@
         return;
       }
       const check = this.engine.isLegalMove(coord.x, coord.y, this.hoverColor);
-      if (!check.legal) return;
+      if (!check.legal) {
+        this.clearPendingMove();
+        if (this.onCellClick) this.onCellClick(coord.x, coord.y);
+        return;
+      }
       const coordStr = root.GoAcademy.coordToString(coord.x, coord.y, this.engine.size);
       if (
         this.pendingMove &&
@@ -290,7 +293,7 @@
         if (e.pointerType !== 'touch' || !this._touchStart) return;
         const start = this._touchStart;
         this._touchStart = null;
-        if (!this.interactive || !this.engine || !this.touchConfirm) return;
+        if (!this.interactive || !this.engine) return;
 
         // Ignore scroll/swipe gestures so page scrolling stays 100% fluid
         const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
@@ -298,6 +301,12 @@
 
         const coord = this._clientToBoard(e.clientX, e.clientY, 0.56);
         if (!coord) return;
+
+        if (!this.touchConfirm) {
+          if (this.onCellClick) this.onCellClick(coord.x, coord.y);
+          return;
+        }
+
         if (
           this.pendingMove &&
           this.pendingMove.x === coord.x &&
@@ -324,7 +333,7 @@
 
       this._onClick = (e) => {
         if (!this.interactive || !this.engine) return;
-        if (this._lastPointerType === 'touch' && this.touchConfirm) {
+        if (this._lastPointerType === 'touch') {
           return;
         }
         const coord = this._clientToBoard(e.clientX, e.clientY);
@@ -351,14 +360,19 @@
 
     resize() {
       const parent = this.canvas.parentElement;
-      let avail = 540;
-      if (parent && parent.clientWidth > 0) {
-        const style = window.getComputedStyle(parent);
-        const padH =
-          (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
-        avail = parent.clientWidth - padH;
+      // Do not size with a fake 540px fallback while tab is hidden (display: none)
+      if (!parent || parent.clientWidth <= 0) {
+        return;
       }
-      const targetCssSize = Math.max(250, Math.min(avail, 560));
+      const style = window.getComputedStyle(parent);
+      const padH =
+        (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+      const vwCap =
+        typeof document !== 'undefined' && document.documentElement.clientWidth
+          ? document.documentElement.clientWidth - 28
+          : 560;
+      const avail = Math.min(parent.clientWidth - padH, vwCap);
+      const targetCssSize = Math.max(240, Math.min(avail, 560));
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
       if (this._pixelSize === targetCssSize && this._dpr === dpr && this.canvas.width > 0) {
@@ -370,6 +384,7 @@
       this._bgCacheKey = '';
       this.canvas.style.width = `${targetCssSize}px`;
       this.canvas.style.height = `${targetCssSize}px`;
+      this.canvas.style.maxWidth = '100%';
       this.canvas.width = Math.round(targetCssSize * dpr);
       this.canvas.height = Math.round(targetCssSize * dpr);
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
